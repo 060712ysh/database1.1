@@ -1,7 +1,7 @@
 <?php
 $teacher_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
-// 取得老師所有詳細資料
+// 取得老師基本資料
 $stmt = $conn->prepare("SELECT * FROM Teachers WHERE teacher_id = ?");
 $stmt->bind_param("i", $teacher_id);
 $stmt->execute();
@@ -31,42 +31,85 @@ if (!$teacher) {
                     <?php echo htmlspecialchars($teacher['office_hours'] ?? '請先透過信箱預約'); ?>
                 </p>
             </div>
-        </div>
-        
-        <div style="display: flex; flex-direction: column; gap: 15px;">
-            <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #ddd;">
-                <h4 style="margin-top: 0; color: #ffc107; text-shadow: 1px 1px 1px rgba(0,0,0,0.1);">🏆 學術榮譽</h4>
-                <p style="margin-bottom: 0; line-height: 1.6;">
-                    <?php echo nl2br(htmlspecialchars($teacher['academic_honors'] ?? '尚無資料')); ?>
+            
+            <?php if (!empty($teacher['lab_name'])): ?>
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px dashed #ccc;">
+                <h4 style="margin: 0 0 5px 0; color: #6f42c1;">🔬 <?php echo htmlspecialchars($teacher['lab_name']); ?></h4>
+                <p style="margin: 0; font-size: 0.9em; color: #555;">
+                    <?php echo nl2br(htmlspecialchars($teacher['lab_info'])); ?>
                 </p>
             </div>
-            
-            <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #ddd; border-left: 4px solid #6f42c1;">
-                <h4 style="margin-top: 0; color: #6f42c1;">🔬 帶領實驗室</h4>
-                <?php if (!empty($teacher['lab_name'])): ?>
-                    <p><strong><?php echo htmlspecialchars($teacher['lab_name']); ?></strong></p>
-                    <p style="margin-bottom: 0; font-size: 0.95em; color: #555;">
-                        <?php echo nl2br(htmlspecialchars($teacher['lab_info'])); ?>
-                    </p>
-                <?php else: ?>
-                    <p style="margin-bottom: 0; color: #999;">尚未登錄實驗室資訊</p>
-                <?php endif; ?>
-            </div>
+            <?php endif; ?>
+        </div>
+        
+        <div style="background: #fff; padding: 20px; border-radius: 8px; border: 1px solid #ddd; border-left: 4px solid #ffc107;">
+            <h4 style="margin-top: 0; color: #d39e00;">🏆 學術榮譽紀錄</h4>
+            <ul style="padding-left: 20px; margin-bottom: 0; line-height: 1.6; color:#444;">
+                <?php
+                $honors = $conn->query("SELECT * FROM AcademicHonors WHERE teacher_id = $teacher_id ORDER BY award_year DESC");
+                if($honors->num_rows > 0) {
+                    while($h = $honors->fetch_assoc()) {
+                        $year_str = $h['award_year'] ? "[{$h['award_year']}] " : "";
+                        $body_str = $h['awarding_body'] ? " - " . htmlspecialchars($h['awarding_body']) : "";
+                        echo "<li><strong>{$year_str}</strong>" . htmlspecialchars($h['honor_name']) . $body_str . "</li>";
+                    }
+                } else {
+                    echo "<li style='color:#999; list-style:none;'>尚無登錄紀錄</li>";
+                }
+                ?>
+            </ul>
         </div>
     </div>
 
     <div style="margin-top: 30px;">
-        <h4 style="color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 5px; display: inline-block;">📑 論文與著作</h4>
-        <div style="background: #fff; border: 1px solid #ddd; padding: 20px; border-radius: 4px; line-height: 1.8;">
-            <?php echo nl2br(htmlspecialchars($teacher['papers'] ?? '尚無資料')); ?>
-        </div>
+        <h3 style="text-align: center; color: #333; margin-bottom: 20px;">論文及參與計畫</h3>
+        
+        <?php
+        // 將所有著作撈出，並依據 work_type 進行陣列分組
+        $pubs_result = $conn->query("SELECT * FROM Publications WHERE teacher_id = $teacher_id ORDER BY publish_year DESC");
+        $grouped_pubs = [];
+        while($row = $pubs_result->fetch_assoc()) {
+            $grouped_pubs[$row['work_type']][] = $row;
+        }
+        
+        if(!empty($grouped_pubs)) {
+            echo "<div style='display:flex; flex-direction:column; gap:10px;'>";
+            foreach($grouped_pubs as $type => $items) {
+                $count = count($items);
+                echo "<div style='background:#f4f9ff; border:1px solid #b8daff; border-radius:8px; overflow:hidden;'>";
+                // 分類標題 (還原截圖的藍色箭頭與數量標示)
+                echo "<div style='background:#007bff; color:white; padding:10px 15px; font-size:1.1em; font-weight:bold; display:flex; align-items:center;'>";
+                echo "<span style='margin-right:10px;'>❯</span> {$type} ({$count})";
+                echo "</div>";
+                // 該分類下的項目列表
+                echo "<div style='padding:15px; background:#fff;'>";
+                echo "<ul style='margin:0; padding-left:20px; line-height:1.8; color:#444;'>";
+                foreach($items as $item) {
+                    $year_str = $item['publish_year'] ? "({$item['publish_year']}) " : "";
+                    
+                    // 【關鍵修正】動態組合：老師最新本名 + 其他作者
+                    $display_authors = htmlspecialchars($teacher['name']);
+                    if (!empty($item['authors'])) {
+                        $display_authors .= ', ' . htmlspecialchars($item['authors']);
+                    }
+                    $author_str = " - 作者：" . $display_authors;
+                    
+                    echo "<li>{$year_str}<strong>" . htmlspecialchars($item['title']) . "</strong>{$author_str}</li>";
+                }
+                echo "</ul>";
+                echo "</div>";
+                echo "</div>";
+            }
+            echo "</div>";
+        } else {
+            echo "<p style='text-align:center; color:#999; padding:20px; background:#f8f9fa; border-radius:8px;'>尚無相關研究與計畫資料</p>";
+        }
+        ?>
     </div>
 
     <div style="margin-top: 30px;">
         <h4 style="color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 5px; display: inline-block;">📚 本學期授課大綱</h4>
-        
         <?php
-        // 撈取該老師本學期(113-1)的課程與大綱
         $courses = $conn->prepare("SELECT course_code, course_name, schedule, syllabus FROM Courses WHERE teacher_id = ? AND semester = '113-1'");
         $courses->bind_param("i", $teacher_id);
         $courses->execute();
@@ -80,8 +123,7 @@ if (!$teacher) {
                 echo "<div style='background: #f4f6f9; padding: 15px; border-radius: 4px; border: 1px solid #e9ecef;'>";
                 echo "<strong style='color: #495057;'>課程大綱與計畫：</strong><br><br>";
                 echo nl2br(htmlspecialchars($c['syllabus'] ?? '老師尚未上傳教學大綱。'));
-                echo "</div>";
-                echo "</div>";
+                echo "</div></div>";
             }
         } else {
             echo "<p style='color: #666; background: #f8f9fa; padding: 15px; border-radius: 4px;'>本學期暫無排定課程。</p>";

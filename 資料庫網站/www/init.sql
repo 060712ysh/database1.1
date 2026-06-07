@@ -10,7 +10,7 @@ CREATE TABLE Users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 專屬管理員資料表 (用來存姓名與職稱)
+-- 專屬管理員資料表
 CREATE TABLE Admins (
     admin_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -19,7 +19,7 @@ CREATE TABLE Admins (
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
 );
 
--- 教師資料表 (已整合請益時間、學術榮譽、論文、實驗室資訊)
+-- 教師資料表 (已移除舊版的文字欄位，改用關聯表)
 CREATE TABLE Teachers (
     teacher_id INT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -29,11 +29,30 @@ CREATE TABLE Teachers (
     phone VARCHAR(20),
     email VARCHAR(100),
     office_hours VARCHAR(100) DEFAULT NULL COMMENT '請益時間',
-    academic_honors TEXT DEFAULT NULL COMMENT '學術榮譽',
-    papers TEXT DEFAULT NULL COMMENT '論文與著作',
     lab_name VARCHAR(100) DEFAULT NULL COMMENT '實驗室名稱',
     lab_info TEXT DEFAULT NULL COMMENT '實驗室簡介與研究方向',
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+-- 1. 學術榮譽資料表
+CREATE TABLE AcademicHonors (
+    honor_id INT AUTO_INCREMENT PRIMARY KEY COMMENT '榮譽編號',
+    teacher_id INT NOT NULL COMMENT '教師編號',
+    honor_name VARCHAR(255) NOT NULL COMMENT '獎項名稱',
+    awarding_body VARCHAR(255) COMMENT '頒發機構',
+    award_year INT COMMENT '獲獎年份',
+    FOREIGN KEY (teacher_id) REFERENCES Teachers(teacher_id) ON DELETE CASCADE
+);
+
+-- 2. 著作與參與計畫資料表
+CREATE TABLE Publications (
+    work_id INT AUTO_INCREMENT PRIMARY KEY COMMENT '著作編號',
+    teacher_id INT NOT NULL COMMENT '教師編號',
+    work_type VARCHAR(100) NOT NULL COMMENT '著作類型 (如：期刊論文、會議論文...)',
+    title VARCHAR(255) NOT NULL COMMENT '標題',
+    authors TEXT COMMENT '作者',
+    publish_year VARCHAR(50) COMMENT '發表日期/出版年份',
+    FOREIGN KEY (teacher_id) REFERENCES Teachers(teacher_id) ON DELETE CASCADE
 );
 
 -- 學生資料表
@@ -45,7 +64,7 @@ CREATE TABLE Students (
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
 );
 
--- 課程資料表 (已整合上課教室)
+-- 課程資料表
 CREATE TABLE Courses (
     course_id INT AUTO_INCREMENT PRIMARY KEY,
     course_code VARCHAR(20) NOT NULL,
@@ -75,7 +94,7 @@ CREATE TABLE Enrollments (
     FOREIGN KEY (course_id) REFERENCES Courses(course_id) ON DELETE CASCADE
 );
 
--- 預約教室紀錄 (已整合拒絕理由)
+-- 預約教室紀錄
 CREATE TABLE Reservations (
     reservation_id INT AUTO_INCREMENT PRIMARY KEY,
     student_id VARCHAR(20) NOT NULL,
@@ -99,7 +118,7 @@ CREATE TABLE Messages (
     FOREIGN KEY (sender_id) REFERENCES Users(id) ON DELETE CASCADE
 );
 
--- 系統檔案紀錄表 (新增)
+-- 系統檔案紀錄表
 CREATE TABLE SystemFiles (
     file_id INT AUTO_INCREMENT PRIMARY KEY,
     filename VARCHAR(255) NOT NULL,
@@ -113,8 +132,8 @@ CREATE TABLE SystemFiles (
 
 -- 插入測試帳號
 INSERT INTO Users (username, password_hash, role) VALUES
-('admin', '$2y$10$N9qo8uLOickgx2ZMRZoHKe6m95iXt/tBKkjlzYF5ZlIzGTlqx7Upu', 'Admin'), -- password: admin
-('teacher_wang', '$2y$10$N9qo8uLOickgx2ZMRZoHKe6m95iXt/tBKkjlzYF5ZlIzGTlqx7Upu', 'Teacher'), -- password: admin
+('admin', '$2y$10$N9qo8uLOickgx2ZMRZoHKe6m95iXt/tBKkjlzYF5ZlIzGTlqx7Upu', 'Admin'),
+('teacher_wang', '$2y$10$N9qo8uLOickgx2ZMRZoHKe6m95iXt/tBKkjlzYF5ZlIzGTlqx7Upu', 'Teacher'),
 ('teacher_lin', '$2y$10$N9qo8uLOickgx2ZMRZoHKe6m95iXt/tBKkjlzYF5ZlIzGTlqx7Upu', 'Teacher'),
 ('teacher_chen', '$2y$10$N9qo8uLOickgx2ZMRZoHKe6m95iXt/tBKkjlzYF5ZlIzGTlqx7Upu', 'Teacher'),
 ('student_001', '$2y$10$N9qo8uLOickgx2ZMRZoHKe6m95iXt/tBKkjlzYF5ZlIzGTlqx7Upu', 'Student'),
@@ -124,11 +143,25 @@ INSERT INTO Users (username, password_hash, role) VALUES
 -- 幫系統預設的 admin 帳號 (user_id=1) 補上資料
 INSERT INTO Admins (user_id, name, title) VALUES (1, '系統管理員', '系辦主任');
 
--- 插入教師資訊 (包含請益時間、專長與實驗室資訊)
-INSERT INTO Teachers (teacher_id, user_id, name, title, phone, email, office_hours, academic_honors, papers, lab_name, lab_info) VALUES
-(1, 2, '王大明', '專任教授', '02-23456789 ext 1234', 'prof.wang@example.edu.tw', '每週一 14:00 - 16:00', '111年度教學傑出獎', '1. 雲端運算架構分析 (2023)\n2. 深度學習應用 (2022)', '智慧雲端實驗室 (AI Cloud Lab)', '本實驗室致力於深度學習與雲端運算架構之研究，著重於如何透過分散式運算提升 AI 模型訓練效率。'),
-(2, 3, '林教授', '副教授', '02-23456789 ext 1235', 'lin.db@example.edu.tw', '每週三 10:00 - 12:00', '國科會優秀年輕學者', '1. 巨量資料探勘技術 (2023)', '資料探勘實驗室 (Data Mining Lab)', '專注於巨量資料分析、推薦系統及資料探勘技術，並與業界合作解決實際場域之數據問題。'),
-(3, 4, '陳教授', '助理教授', '02-23456789 ext 1236', 'chen.algo@example.edu.tw', '每週四 15:00 - 17:00', NULL, NULL, NULL, NULL);
+-- 插入教師資訊
+INSERT INTO Teachers (teacher_id, user_id, name, title, phone, email, office_hours, lab_name, lab_info) VALUES
+(1, 2, '王大明', '專任教授', '02-23456789 ext 1234', 'prof.wang@example.edu.tw', '每週一 14:00 - 16:00', '智慧雲端實驗室 (AI Cloud Lab)', '本實驗室致力於深度學習與雲端運算架構之研究，著重於如何透過分散式運算提升 AI 模型訓練效率。'),
+(2, 3, '林教授', '副教授', '02-23456789 ext 1235', 'lin.db@example.edu.tw', '每週三 10:00 - 12:00', '資料探勘實驗室 (Data Mining Lab)', '專注於巨量資料分析、推薦系統及資料探勘技術，並與業界合作解決實際場域之數據問題。'),
+(3, 4, '陳教授', '助理教授', '02-23456789 ext 1236', 'chen.algo@example.edu.tw', '每週四 15:00 - 17:00', NULL, NULL);
+
+-- 插入學術榮譽測試資料
+INSERT INTO AcademicHonors (teacher_id, honor_name, awarding_body, award_year) VALUES
+(1, '111年度教學傑出獎', '教育部', 2022),
+(1, '最佳學術著作獎', '台灣資訊學會', 2023),
+(2, '優秀年輕學者', '國科會', 2021);
+
+-- 插入著作與計畫測試資料 (只保留其他作者)
+INSERT INTO Publications (teacher_id, work_type, title, authors, publish_year) VALUES
+(1, '發表期刊論文', '雲端運算架構分析與最佳化', '張三', '2023-05'),
+(1, '會議論文', '深度學習在邊緣運算之應用', '李四', '2022-11'),
+(1, '國科會計畫', '分散式人工智慧系統開發', '', '2023'),
+(2, '國科會計畫', '巨量資料探勘技術研究', '', '2023'),
+(2, '發表期刊論文', '基於圖神經網絡之推薦系統', '王五', '2023-08');
 
 -- 插入學生資訊
 INSERT INTO Students (student_id, user_id, name, enrollment_year) VALUES
@@ -136,7 +169,7 @@ INSERT INTO Students (student_id, user_id, name, enrollment_year) VALUES
 ('B110002', 6, '張偉', 2022),
 ('B110003', 7, '王小明', 2023);
 
--- 插入課程資訊 (補上預設的上課教室)
+-- 插入課程資訊
 INSERT INTO Courses (course_code, course_name, semester, teacher_id, capacity, schedule, room) VALUES
 ('CS101', '計算機概論', '113-1', 1, 50, '一 2,3,4', '資工系館 R101'),
 ('CS305', '資料庫系統', '113-1', 2, 40, '二 2,3,4', '資工系館 R102'),
