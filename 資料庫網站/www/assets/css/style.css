@@ -1,0 +1,23 @@
+﻿body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; display: flex; height: 100vh; background-color: #f4f6f9; }
+.sidebar { width: 250px; background-color: #2c3e50; color: #fff; display: flex; flex-direction: column; overflow-y: auto; box-shadow: 2px 0 4px rgba(0,0,0,0.1); }
+.sidebar h2 { text-align: center; padding: 20px 0; border-bottom: 1px solid #34495e; margin: 0; font-size: 1.1rem; font-weight: 600; }
+.sidebar a { padding: 15px 20px; color: #ecf0f1; text-decoration: none; border-bottom: 1px solid #34495e; display: block; transition: all 0.3s ease; font-weight: 500; }
+.sidebar a:hover { background-color: #34495e; color: #fff; border-left: 4px solid #3498db; padding-left: 16px; }
+.main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.header { background-color: #fff; padding: 15px 30px; border-bottom: 2px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+.header h3 { margin: 0; color: #2c3e50; }
+.content-area { padding: 30px; overflow-y: auto; flex: 1; }
+.card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+.card h2 { margin-top: 0; color: #2c3e50; }
+button, .btn { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; transition: all 0.3s ease; font-weight: 500; }
+button:hover, .btn:hover { background: #0056b3; transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+button:disabled, .btn:disabled { background: #6c757d; cursor: not-allowed; transform: none; }
+input[type="text"], input[type="password"], input[type="email"], input[type="file"], input[type="datetime-local"], select, textarea { padding: 10px; width: 100%; box-sizing: border-box; margin: 5px 0 15px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; }
+input[type="text"]:focus, input[type="password"]:focus, input[type="email"]:focus, input[type="file"]:focus, input[type="datetime-local"]:focus, select:focus, textarea:focus { outline: none; border-color: #007bff; box-shadow: 0 0 0 3px rgba(0,123,255,0.25); }
+table { border-collapse: collapse; width: 100%; }
+table tr { border-bottom: 1px solid #e0e0e0; }
+table th, table td { padding: 12px 10px; text-align: left; }
+table th { background-color: #f4f6f9; font-weight: 600; color: #2c3e50; }
+table tr:hover { background-color: #f9f9f9; }
+label { font-weight: 500; color: #2c3e50; display: block; margin: 10px 0 5px 0; }
+hr { border: none; border-top: 1px solid #e0e0e0; margin: 20px 0; }
