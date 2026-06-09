@@ -61,11 +61,28 @@ if (!$teacher) {
         </div>
     </div>
 
+    <?php if (!empty($teacher['teaching_experience'])): ?>
+    <div style="margin-top: 30px;">
+        <h4 style="color: #28a745; border-bottom: 2px solid #28a745; padding-bottom: 5px; display: inline-block;">🏫 校內教學經歷</h4>
+        <div style="background: #f8fff9; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb; line-height: 1.6; color:#444;">
+            <?php echo nl2br(htmlspecialchars($teacher['teaching_experience'])); ?>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <?php if (!empty($teacher['external_experience'])): ?>
+    <div style="margin-top: 20px;">
+        <h4 style="color: #fd7e14; border-bottom: 2px solid #fd7e14; padding-bottom: 5px; display: inline-block;">🏢 校外經歷</h4>
+        <div style="background: #fff8f2; padding: 15px; border-radius: 8px; border: 1px solid #ffdfc5; line-height: 1.6; color:#444;">
+            <?php echo nl2br(htmlspecialchars($teacher['external_experience'])); ?>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <div style="margin-top: 30px;">
         <h3 style="text-align: center; color: #333; margin-bottom: 20px;">論文及參與計畫</h3>
         
         <?php
-        // 將所有著作撈出，並依據 work_type 進行陣列分組
         $pubs_result = $conn->query("SELECT * FROM Publications WHERE teacher_id = $teacher_id ORDER BY publish_year DESC");
         $grouped_pubs = [];
         while($row = $pubs_result->fetch_assoc()) {
@@ -77,17 +94,19 @@ if (!$teacher) {
             foreach($grouped_pubs as $type => $items) {
                 $count = count($items);
                 echo "<div style='background:#f4f9ff; border:1px solid #b8daff; border-radius:8px; overflow:hidden;'>";
-                // 分類標題 (還原截圖的藍色箭頭與數量標示)
-                echo "<div style='background:#007bff; color:white; padding:10px 15px; font-size:1.1em; font-weight:bold; display:flex; align-items:center;'>";
-                echo "<span style='margin-right:10px;'>❯</span> {$type} ({$count})";
+                
+                // 【修改】加入 onclick 事件與滑鼠游標變化，並幫箭頭加上動畫效果
+                echo "<div onclick='togglePubSection(this)' style='background:#007bff; color:white; padding:10px 15px; font-size:1.1em; font-weight:bold; display:flex; align-items:center; cursor:pointer; user-select:none;'>";
+                // 預設箭頭向下 (代表展開)
+                echo "<span class='toggle-arrow' style='margin-right:10px; display:inline-block; transition:transform 0.2s ease; transform:rotate(90deg);'>❯</span> {$type} ({$count})";
                 echo "</div>";
-                // 該分類下的項目列表
-                echo "<div style='padding:15px; background:#fff;'>";
+                
+                // 【修改】內容區塊，預設為顯示 (display:block)
+                echo "<div class='pub-content' style='padding:15px; background:#fff; display:block;'>";
                 echo "<ul style='margin:0; padding-left:20px; line-height:1.8; color:#444;'>";
                 foreach($items as $item) {
                     $year_str = $item['publish_year'] ? "({$item['publish_year']}) " : "";
                     
-                    // 【關鍵修正】動態組合：老師最新本名 + 其他作者
                     $display_authors = htmlspecialchars($teacher['name']);
                     if (!empty($item['authors'])) {
                         $display_authors .= ', ' . htmlspecialchars($item['authors']);
@@ -132,4 +151,22 @@ if (!$teacher) {
         ?>
     </div>
 </div>
+
+<script>
+function togglePubSection(header) {
+    // 找到標題下方的內容區塊
+    var content = header.nextElementSibling;
+    // 找到標題內的箭頭圖示
+    var arrow = header.querySelector('.toggle-arrow');
+    
+    // 切換顯示/隱藏與箭頭方向
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        arrow.style.transform = 'rotate(90deg)'; // 展開時箭頭朝下
+    } else {
+        content.style.display = 'none';
+        arrow.style.transform = 'rotate(0deg)'; // 折疊時箭頭朝右
+    }
+}
+</script>
 <?php } ?>

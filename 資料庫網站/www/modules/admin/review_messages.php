@@ -1,5 +1,5 @@
-﻿<div class="card">
-    <h2>💬 留言與信箱審核</h2>
+﻿﻿<div class="card">
+    <h2>💬 留言回復</h2>
     
     <?php
     if($_SESSION['role'] != 'Admin') {

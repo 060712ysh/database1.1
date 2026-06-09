@@ -48,7 +48,8 @@ $page = isset($_GET['page']) ? $_GET['page'] : 'home';
                     // ⚠️ 這裡加入了 'teacher_detail'，讓系統可以讀取老師專頁
                     if (in_array($page_name, ['faculty', 'labs', 'teacher_detail', 'downloads'])) {
                         $module_path = 'modules/public/' . $page_name . '.php';
-                    } else if ($role == 'Admin' && in_array($page_name, ['manage_accounts', 'manage_courses', 'review_reservations', 'review_messages', 'manage_files', 'view_database'])) {
+                    } else if ($role == 'Admin' && in_array($page_name, ['manage_accounts', 'manage_courses', 'manage_enrollments', 'review_reservations', 'review_messages', 'manage_files', 'view_database'])) {
+                        
                         $module_path = 'modules/admin/' . $page_name . '.php';
                     } else if ($role == 'Teacher' && in_array($page_name, ['profile', 'syllabus', 'grading'])) {
                         $module_path = 'modules/teacher/' . $page_name . '.php';

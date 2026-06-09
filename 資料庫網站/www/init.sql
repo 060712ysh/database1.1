@@ -19,7 +19,7 @@ CREATE TABLE Admins (
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
 );
 
--- 教師資料表 (已移除舊版的文字欄位，改用關聯表)
+-- 教師資料表 (包含校內教學經歷與校外經歷)
 CREATE TABLE Teachers (
     teacher_id INT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -31,6 +31,8 @@ CREATE TABLE Teachers (
     office_hours VARCHAR(100) DEFAULT NULL COMMENT '請益時間',
     lab_name VARCHAR(100) DEFAULT NULL COMMENT '實驗室名稱',
     lab_info TEXT DEFAULT NULL COMMENT '實驗室簡介與研究方向',
+    teaching_experience TEXT DEFAULT NULL COMMENT '校內教學經歷',
+    external_experience TEXT DEFAULT NULL COMMENT '校外經歷',
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
 );
 
@@ -64,7 +66,7 @@ CREATE TABLE Students (
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
 );
 
--- 課程資料表
+-- 課程資料表 (已新增平時、期中、期末的專屬權重欄位)
 CREATE TABLE Courses (
     course_id INT AUTO_INCREMENT PRIMARY KEY,
     course_code VARCHAR(20) NOT NULL,
@@ -75,8 +77,23 @@ CREATE TABLE Courses (
     schedule VARCHAR(100), -- 上課時間
     room VARCHAR(50) DEFAULT NULL COMMENT '上課教室',
     syllabus TEXT,
+    weight_assignment INT NOT NULL DEFAULT 30 COMMENT '平時成績權重',
+    weight_midterm INT NOT NULL DEFAULT 30 COMMENT '期中成績權重',
+    weight_final INT NOT NULL DEFAULT 40 COMMENT '期末成績權重',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (teacher_id) REFERENCES Teachers(teacher_id) ON DELETE SET NULL
+);
+
+-- 選課申請表 (加退選審核機制)
+CREATE TABLE CourseRequests (
+    request_id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id VARCHAR(20) NOT NULL,
+    course_id INT NOT NULL,
+    action ENUM('Add', 'Drop') NOT NULL COMMENT 'Add=加選, Drop=退選',
+    status ENUM('Pending', 'Approved', 'Rejected') DEFAULT 'Pending',
+    request_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (student_id) REFERENCES Students(student_id) ON DELETE CASCADE,
+    FOREIGN KEY (course_id) REFERENCES Courses(course_id) ON DELETE CASCADE
 );
 
 -- 選課與成績關聯表 (橋接表)
@@ -143,11 +160,11 @@ INSERT INTO Users (username, password_hash, role) VALUES
 -- 幫系統預設的 admin 帳號 (user_id=1) 補上資料
 INSERT INTO Admins (user_id, name, title) VALUES (1, '系統管理員', '系辦主任');
 
--- 插入教師資訊
-INSERT INTO Teachers (teacher_id, user_id, name, title, phone, email, office_hours, lab_name, lab_info) VALUES
-(1, 2, '王大明', '專任教授', '02-23456789 ext 1234', 'prof.wang@example.edu.tw', '每週一 14:00 - 16:00', '智慧雲端實驗室 (AI Cloud Lab)', '本實驗室致力於深度學習與雲端運算架構之研究，著重於如何透過分散式運算提升 AI 模型訓練效率。'),
-(2, 3, '林教授', '副教授', '02-23456789 ext 1235', 'lin.db@example.edu.tw', '每週三 10:00 - 12:00', '資料探勘實驗室 (Data Mining Lab)', '專注於巨量資料分析、推薦系統及資料探勘技術，並與業界合作解決實際場域之數據問題。'),
-(3, 4, '陳教授', '助理教授', '02-23456789 ext 1236', 'chen.algo@example.edu.tw', '每週四 15:00 - 17:00', NULL, NULL);
+-- 插入教師資訊 (包含校內外教學經歷)
+INSERT INTO Teachers (teacher_id, user_id, name, title, phone, email, office_hours, lab_name, lab_info, teaching_experience, external_experience) VALUES
+(1, 2, '王大明', '專任教授', '02-23456789 ext 1234', 'prof.wang@example.edu.tw', '每週一 14:00 - 16:00', '智慧雲端實驗室 (AI Cloud Lab)', '本實驗室致力於深度學習與雲端運算架構之研究，著重於如何透過分散式運算提升 AI 模型訓練效率。', '112學年度 計算機概論\n111學年度 雲端運算實務', '110年-至今 台灣人工智慧協會 理事\n108年-110年 知名科技公司 AI資深顧問'),
+(2, 3, '林教授', '副教授', '02-23456789 ext 1235', 'lin.db@example.edu.tw', '每週三 10:00 - 12:00', '資料探勘實驗室 (Data Mining Lab)', '專注於巨量資料分析、推薦系統及資料探勘技術，並與業界合作解決實際場域之數據問題。', '112學年度 資料庫系統\n112學年度 巨量資料分析', NULL),
+(3, 4, '陳教授', '助理教授', '02-23456789 ext 1236', 'chen.algo@example.edu.tw', '每週四 15:00 - 17:00', NULL, NULL, '112學年度 演算法', NULL);
 
 -- 插入學術榮譽測試資料
 INSERT INTO AcademicHonors (teacher_id, honor_name, awarding_body, award_year) VALUES
@@ -169,15 +186,20 @@ INSERT INTO Students (student_id, user_id, name, enrollment_year) VALUES
 ('B110002', 6, '張偉', 2022),
 ('B110003', 7, '王小明', 2023);
 
--- 插入課程資訊
+-- 插入課程資訊 (採用預設的 30/30/40 權重)
 INSERT INTO Courses (course_code, course_name, semester, teacher_id, capacity, schedule, room) VALUES
 ('CS101', '計算機概論', '113-1', 1, 50, '一 2,3,4', '資工系館 R101'),
 ('CS305', '資料庫系統', '113-1', 2, 40, '二 2,3,4', '資工系館 R102'),
 ('CS201', '演算法', '113-1', 3, 50, '三 5,6,7', '資工系館 R201');
 
--- 插入選課紀錄
+-- 插入選課紀錄 (確定的課表)
 INSERT INTO Enrollments (student_id, course_id, assignment_scores, midterm_score, final_score, total_score) VALUES
 ('B110001', 1, 85, 90, 88, 88),
 ('B110002', 1, 70, 65, 80, 72),
 ('B110001', 3, NULL, 85, NULL, NULL),
 ('B110003', 2, 90, 88, 92, 90);
+
+-- 插入測試用的「待審核」選課申請
+INSERT INTO CourseRequests (student_id, course_id, action, status) VALUES
+('B110003', 1, 'Add', 'Pending'),  -- 王小明申請加選計算機概論
+('B110002', 1, 'Drop', 'Pending'); -- 張偉申請退選計算機概論
