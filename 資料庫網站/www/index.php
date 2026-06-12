@@ -1,4 +1,4 @@
-﻿﻿﻿<?php
+﻿﻿<?php
 session_start();
 require_once 'db_connect.php';
 
@@ -17,54 +17,52 @@ $page = isset($_GET['page']) ? $_GET['page'] : 'home';
 </head>
 <body>
     <div class="sidebar">
-            <h2>🧭 選單導覽</h2> 
+        <h2>🧭 選單導覽</h2> 
+        <?php
+        if ($role == 'Admin') {
+            include 'includes/sidebar_admin.php';
+        } elseif ($role == 'Teacher') {
+            include 'includes/sidebar_teacher.php';
+        } elseif ($role == 'Student') {
+            include 'includes/sidebar_student.php';
+        } else {
+            include 'includes/sidebar_public.php';
+        }
+        ?>
+    </div>
+
+    <div class="main-content">
+        <?php include 'includes/header.php'; ?>
+
+        <div class="content-area">
             <?php
-            if ($role == 'Admin') {
-                include 'includes/sidebar_admin.php';
-            } elseif ($role == 'Teacher') {
-                include 'includes/sidebar_teacher.php';
-            } elseif ($role == 'Student') {
-                include 'includes/sidebar_student.php';
+            // Simple router
+            if ($page == 'login') {
+                include 'login.php';
             } else {
-                include 'includes/sidebar_public.php';
+                $module_path = '';
+                $page_name = basename($page); 
+
+                // ⚠️ 這裡把 'home' 加入到公開頁面的陣列裡，讓系統去載入 modules/public/home.php
+                if (in_array($page_name, ['home', 'faculty', 'labs', 'teacher_detail', 'downloads'])) {
+                    $module_path = 'modules/public/' . $page_name . '.php';
+                } else if ($role == 'Admin' && in_array($page_name, ['manage_accounts', 'manage_courses', 'manage_enrollments', 'review_reservations', 'review_messages', 'manage_files', 'view_database', 'teacher_logs'])) {
+                    $module_path = 'modules/admin/' . $page_name . '.php';
+                } else if ($role == 'Teacher' && in_array($page_name, ['profile', 'syllabus', 'grading'])) {
+                    $module_path = 'modules/teacher/' . $page_name . '.php';
+                } else if ($role == 'Student' && in_array($page_name, ['course_selection', 'my_schedule', 'reservation', 'message'])) {
+                    $module_path = 'modules/student/' . $page_name . '.php';
+                }
+
+                // 檢查檔案是否存在並載入
+                if ($module_path != '' && file_exists($module_path)) {
+                    include $module_path;
+                } else {
+                    echo "<div class='card' style='border-left: 4px solid #dc3545;'><h2>⚠️ 發生錯誤</h2><p>您請求的頁面不存在，或您沒有權限瀏覽此頁面。</p></div>";
+                }
             }
             ?>
         </div>
-
-        <div class="main-content">
-            <?php include 'includes/header.php'; ?>
-
-            <div class="content-area">
-                <?php
-                // Simple router
-                if ($page == 'login') {
-                    include 'login.php';
-                } else if ($page == 'home') {
-                    echo "<div class='card'><h2>歡迎瀏覽資工系入口網</h2><p>請從左側選單選擇功能，或點擊右上角登入系統。</p></div>";
-                } else {
-                    $module_path = '';
-                    $page_name = basename($page); 
-
-                    // ⚠️ 這裡加入了 'teacher_detail'，讓系統可以讀取老師專頁
-                    if (in_array($page_name, ['faculty', 'labs', 'teacher_detail', 'downloads'])) {
-                        $module_path = 'modules/public/' . $page_name . '.php';
-                    } else if ($role == 'Admin' && in_array($page_name, ['manage_accounts', 'manage_courses', 'manage_enrollments', 'review_reservations', 'review_messages', 'manage_files', 'view_database'])) {
-                        
-                        $module_path = 'modules/admin/' . $page_name . '.php';
-                    } else if ($role == 'Teacher' && in_array($page_name, ['profile', 'syllabus', 'grading'])) {
-                        $module_path = 'modules/teacher/' . $page_name . '.php';
-                    } else if ($role == 'Student' && in_array($page_name, ['course_selection', 'my_schedule', 'reservation', 'message'])) {
-                        $module_path = 'modules/student/' . $page_name . '.php';
-                    }
-
-                    if (file_exists($module_path)) {
-                        include $module_path;
-                    } else {
-                        echo "<div class='card'><h2>發生錯誤</h2><p>您請求的頁面不存在，或您沒有權限瀏覽此頁面。</p></div>";
-                    }
-                }
-                ?>
-            </div>
-        </div>
+    </div>
 </body>
 </html>

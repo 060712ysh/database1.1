@@ -21,12 +21,15 @@
             $lab_name = trim($_POST['lab_name'] ?? '');
             $lab_info = trim($_POST['lab_info'] ?? '');
             $teaching_exp = trim($_POST['teaching_experience'] ?? '');
-            $external_exp = trim($_POST['external_experience'] ?? ''); // 新增校外經歷
+            $external_exp = trim($_POST['external_experience'] ?? ''); 
             
             $update = $conn->prepare("UPDATE Teachers SET phone=?, email=?, office_hours=?, lab_name=?, lab_info=?, teaching_experience=?, external_experience=? WHERE teacher_id=?");
             $update->bind_param("ssssssssi", $phone, $email, $office_hours, $lab_name, $lab_info, $teaching_exp, $external_exp, $teacher_id);
-            $update->execute();
-            echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>聯絡資訊與經歷資料已更新</div>";
+            if ($update->execute()) {
+                // 【寫入日誌】
+                $conn->query("INSERT INTO TeacherLogs (teacher_id, action_type, description) VALUES ($teacher_id, '基本資料更新', '更新了聯絡資訊、實驗室或經歷等基本資料。')");
+                echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>聯絡資訊與經歷資料已更新</div>";
+            }
             $profile->execute();
             $p = $profile->get_result()->fetch_assoc();
         }
@@ -39,12 +42,18 @@
             if($h_name) {
                 $ins = $conn->prepare("INSERT INTO AcademicHonors (teacher_id, honor_name, awarding_body, award_year) VALUES (?, ?, ?, ?)");
                 $ins->bind_param("issi", $teacher_id, $h_name, $h_body, $h_year);
-                $ins->execute();
+                if ($ins->execute()) {
+                    // 【寫入日誌】
+                    $safe_name = $conn->real_escape_string($h_name);
+                    $conn->query("INSERT INTO TeacherLogs (teacher_id, action_type, description) VALUES ($teacher_id, '學術榮譽', '新增了一筆學術榮譽紀錄：{$safe_name}')");
+                }
             }
         }
         if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_honor'])) {
             $del_id = intval($_POST['honor_id']);
             $conn->query("DELETE FROM AcademicHonors WHERE honor_id = $del_id AND teacher_id = $teacher_id");
+            // 【寫入日誌】
+            $conn->query("INSERT INTO TeacherLogs (teacher_id, action_type, description) VALUES ($teacher_id, '學術榮譽', '刪除了一筆學術榮譽紀錄。')");
         }
 
         // --- 處理 3：新增/刪除著作與計畫 ---
@@ -57,16 +66,22 @@
             if($p_title && $p_type) {
                 $ins = $conn->prepare("INSERT INTO Publications (teacher_id, work_type, title, authors, publish_year) VALUES (?, ?, ?, ?, ?)");
                 $ins->bind_param("issss", $teacher_id, $p_type, $p_title, $other_authors, $p_year);
-                $ins->execute();
+                if ($ins->execute()) {
+                    // 【寫入日誌】
+                    $safe_title = $conn->real_escape_string($p_title);
+                    $conn->query("INSERT INTO TeacherLogs (teacher_id, action_type, description) VALUES ($teacher_id, '著作與計畫', '新增了一筆紀錄：[{$p_type}] {$safe_title}')");
+                }
             }
         }
         if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_pub'])) {
             $del_id = intval($_POST['work_id']);
             $conn->query("DELETE FROM Publications WHERE work_id = $del_id AND teacher_id = $teacher_id");
+            // 【寫入日誌】
+            $conn->query("INSERT INTO TeacherLogs (teacher_id, action_type, description) VALUES ($teacher_id, '著作與計畫', '刪除了一筆著作與計畫紀錄。')");
         }
         
         // ==========================================
-        // 畫面顯示區塊
+        // 畫面顯示區塊 (此處以下完全不用改，保留您原有的 UI 程式碼即可)
         // ==========================================
         echo "<hr style='margin:20px 0;'>";
         

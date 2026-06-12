@@ -1,5 +1,9 @@
 -- 資料庫網頁設計 初始化 SQL 腳本
--- 根據 readme.md 規範設計 Schema
+-- 終極完全體：包含所有最新進階功能與全新空間節次預約架構
+
+-- =====================================================
+-- 1. 建立資料表 Schema
+-- =====================================================
 
 -- 用戶/角色資料表
 CREATE TABLE Users (
@@ -19,7 +23,7 @@ CREATE TABLE Admins (
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
 );
 
--- 教師資料表 (包含校內教學經歷與校外經歷)
+-- 教師資料表 (包含校內外經歷)
 CREATE TABLE Teachers (
     teacher_id INT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -36,46 +40,56 @@ CREATE TABLE Teachers (
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
 );
 
--- 1. 學術榮譽資料表
+-- 學術榮譽資料表
 CREATE TABLE AcademicHonors (
-    honor_id INT AUTO_INCREMENT PRIMARY KEY COMMENT '榮譽編號',
-    teacher_id INT NOT NULL COMMENT '教師編號',
-    honor_name VARCHAR(255) NOT NULL COMMENT '獎項名稱',
-    awarding_body VARCHAR(255) COMMENT '頒發機構',
-    award_year INT COMMENT '獲獎年份',
+    honor_id INT AUTO_INCREMENT PRIMARY KEY,
+    teacher_id INT NOT NULL,
+    honor_name VARCHAR(255) NOT NULL,
+    awarding_body VARCHAR(255),
+    award_year INT,
     FOREIGN KEY (teacher_id) REFERENCES Teachers(teacher_id) ON DELETE CASCADE
 );
 
--- 2. 著作與參與計畫資料表
+-- 著作與參與計畫資料表
 CREATE TABLE Publications (
-    work_id INT AUTO_INCREMENT PRIMARY KEY COMMENT '著作編號',
-    teacher_id INT NOT NULL COMMENT '教師編號',
-    work_type VARCHAR(100) NOT NULL COMMENT '著作類型 (如：期刊論文、會議論文...)',
-    title VARCHAR(255) NOT NULL COMMENT '標題',
-    authors TEXT COMMENT '作者',
-    publish_year VARCHAR(50) COMMENT '發表日期/出版年份',
+    work_id INT AUTO_INCREMENT PRIMARY KEY,
+    teacher_id INT NOT NULL,
+    work_type VARCHAR(100) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    authors TEXT COMMENT '其他作者(不含教師本人)',
+    publish_year VARCHAR(50),
+    FOREIGN KEY (teacher_id) REFERENCES Teachers(teacher_id) ON DELETE CASCADE
+);
+
+-- 教師更新日誌 (Audit Log)
+CREATE TABLE TeacherLogs (
+    log_id INT AUTO_INCREMENT PRIMARY KEY,
+    teacher_id INT NOT NULL,
+    action_type VARCHAR(50) NOT NULL COMMENT '動作分類',
+    description TEXT NOT NULL COMMENT '異動細節',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (teacher_id) REFERENCES Teachers(teacher_id) ON DELETE CASCADE
 );
 
 -- 學生資料表
 CREATE TABLE Students (
-    student_id VARCHAR(20) PRIMARY KEY, -- 學號
+    student_id VARCHAR(20) PRIMARY KEY,
     user_id INT NOT NULL,
     name VARCHAR(100) NOT NULL,
     enrollment_year INT,
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
 );
 
--- 課程資料表 (已新增平時、期中、期末的專屬權重欄位)
+-- 課程資料表 (包含專屬加權設定)
 CREATE TABLE Courses (
     course_id INT AUTO_INCREMENT PRIMARY KEY,
     course_code VARCHAR(20) NOT NULL,
     course_name VARCHAR(100) NOT NULL,
-    semester VARCHAR(10) NOT NULL, -- 如：113-1
+    semester VARCHAR(10) NOT NULL,
     teacher_id INT,
-    capacity INT NOT NULL DEFAULT 50, -- 修課人數上限
-    schedule VARCHAR(100), -- 上課時間
-    room VARCHAR(50) DEFAULT NULL COMMENT '上課教室',
+    capacity INT NOT NULL DEFAULT 50,
+    schedule VARCHAR(100),
+    room VARCHAR(50) DEFAULT NULL,
     syllabus TEXT,
     weight_assignment INT NOT NULL DEFAULT 30 COMMENT '平時成績權重',
     weight_midterm INT NOT NULL DEFAULT 30 COMMENT '期中成績權重',
@@ -96,38 +110,39 @@ CREATE TABLE CourseRequests (
     FOREIGN KEY (course_id) REFERENCES Courses(course_id) ON DELETE CASCADE
 );
 
--- 選課與成績關聯表 (橋接表)
+-- 選課與成績關聯表
 CREATE TABLE Enrollments (
     enrollment_id INT AUTO_INCREMENT PRIMARY KEY,
     student_id VARCHAR(20),
     course_id INT,
-    assignment_scores DECIMAL(5, 2) DEFAULT NULL, -- 平時作業
-    midterm_score DECIMAL(5, 2) DEFAULT NULL, -- 期中成績
-    final_score DECIMAL(5, 2) DEFAULT NULL, -- 期末成績
-    total_score DECIMAL(5, 2) DEFAULT NULL, -- 總成績
+    assignment_scores DECIMAL(5, 2) DEFAULT NULL,
+    midterm_score DECIMAL(5, 2) DEFAULT NULL,
+    final_score DECIMAL(5, 2) DEFAULT NULL,
+    total_score DECIMAL(5, 2) DEFAULT NULL,
     enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY(student_id, course_id),
     FOREIGN KEY (student_id) REFERENCES Students(student_id) ON DELETE CASCADE,
     FOREIGN KEY (course_id) REFERENCES Courses(course_id) ON DELETE CASCADE
 );
 
--- 預約教室紀錄
+-- 預約空間紀錄表 (⚠️ 已升級為全新的日期與 1~14 節次專屬架構)
 CREATE TABLE Reservations (
     reservation_id INT AUTO_INCREMENT PRIMARY KEY,
     student_id VARCHAR(20) NOT NULL,
     room_name VARCHAR(50) NOT NULL,
     purpose TEXT NOT NULL,
-    start_time DATETIME NOT NULL,
-    end_time DATETIME NOT NULL,
+    reserve_date DATE NOT NULL COMMENT '借用日期',
+    start_period INT NOT NULL COMMENT '開始節次 (1-14)',
+    end_period INT NOT NULL COMMENT '結束節次 (1-14)',
     status ENUM('Pending', 'Approved', 'Rejected') DEFAULT 'Pending',
-    reject_reason TEXT DEFAULT NULL COMMENT '拒絕理由',
+    reject_reason TEXT DEFAULT NULL,
     FOREIGN KEY (student_id) REFERENCES Students(student_id) ON DELETE CASCADE
 );
 
--- 留言板
+-- 留言板 (信件工單模式)
 CREATE TABLE Messages (
     message_id INT AUTO_INCREMENT PRIMARY KEY,
-    sender_id INT NOT NULL, -- 參考 Users.id
+    sender_id INT NOT NULL,
     content TEXT NOT NULL,
     reply_content TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -139,15 +154,25 @@ CREATE TABLE Messages (
 CREATE TABLE SystemFiles (
     file_id INT AUTO_INCREMENT PRIMARY KEY,
     filename VARCHAR(255) NOT NULL,
-    remark TEXT COMMENT '檔案備註說明',
+    remark TEXT,
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 最新消息資料表 (首頁佈告欄)
+CREATE TABLE News (
+    news_id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    image_path VARCHAR(255) DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
 -- =====================================================
--- 預設資料插入
+-- 2. 預設資料插入
 -- =====================================================
 
--- 插入測試帳號
+-- 插入測試帳號 (密碼雜湊值皆對應 123456)
 INSERT INTO Users (username, password_hash, role) VALUES
 ('admin', '$2y$10$N9qo8uLOickgx2ZMRZoHKe6m95iXt/tBKkjlzYF5ZlIzGTlqx7Upu', 'Admin'),
 ('teacher_wang', '$2y$10$N9qo8uLOickgx2ZMRZoHKe6m95iXt/tBKkjlzYF5ZlIzGTlqx7Upu', 'Teacher'),
@@ -157,22 +182,22 @@ INSERT INTO Users (username, password_hash, role) VALUES
 ('student_002', '$2y$10$N9qo8uLOickgx2ZMRZoHKe6m95iXt/tBKkjlzYF5ZlIzGTlqx7Upu', 'Student'),
 ('student_003', '$2y$10$N9qo8uLOickgx2ZMRZoHKe6m95iXt/tBKkjlzYF5ZlIzGTlqx7Upu', 'Student');
 
--- 幫系統預設的 admin 帳號 (user_id=1) 補上資料
+-- 管理員基本資料
 INSERT INTO Admins (user_id, name, title) VALUES (1, '系統管理員', '系辦主任');
 
--- 插入教師資訊 (包含校內外教學經歷)
+-- 教師資訊 (包含校內外教學經歷)
 INSERT INTO Teachers (teacher_id, user_id, name, title, phone, email, office_hours, lab_name, lab_info, teaching_experience, external_experience) VALUES
-(1, 2, '王大明', '專任教授', '02-23456789 ext 1234', 'prof.wang@example.edu.tw', '每週一 14:00 - 16:00', '智慧雲端實驗室 (AI Cloud Lab)', '本實驗室致力於深度學習與雲端運算架構之研究，著重於如何透過分散式運算提升 AI 模型訓練效率。', '112學年度 計算機概論\n111學年度 雲端運算實務', '110年-至今 台灣人工智慧協會 理事\n108年-110年 知名科技公司 AI資深顧問'),
+(1, 2, '王大明', '專任教授', '02-23456789 ext 1234', 'prof.wang@example.edu.tw', '每週一 14:00 - 16:00', '智慧雲端實驗室 (AI Cloud Lab)', '本實驗室致力於深度學習與雲端運算架構之研究，著重於如何透過分散式運算提升 AI 模型訓練效率。', '112學年度 計算機概論\n111學年度 雲端運算實務', '110年-至今 台灣人工智慧協會 理集\n108年-110年 知名科技公司 AI資深顧問'),
 (2, 3, '林教授', '副教授', '02-23456789 ext 1235', 'lin.db@example.edu.tw', '每週三 10:00 - 12:00', '資料探勘實驗室 (Data Mining Lab)', '專注於巨量資料分析、推薦系統及資料探勘技術，並與業界合作解決實際場域之數據問題。', '112學年度 資料庫系統\n112學年度 巨量資料分析', NULL),
-(3, 4, '陳教授', '助理教授', '02-23456789 ext 1236', 'chen.algo@example.edu.tw', '每週四 15:00 - 17:00', NULL, NULL, '112學年度 演算法', NULL);
+(3, 4, '陳教授', '助理教授', '02-23456789 ext 1236', 'chen.algo@example.edu.tw', '每週外 15:00 - 17:00', NULL, NULL, '112學年度 演算法', NULL);
 
--- 插入學術榮譽測試資料
+-- 學術榮譽紀錄
 INSERT INTO AcademicHonors (teacher_id, honor_name, awarding_body, award_year) VALUES
 (1, '111年度教學傑出獎', '教育部', 2022),
 (1, '最佳學術著作獎', '台灣資訊學會', 2023),
 (2, '優秀年輕學者', '國科會', 2021);
 
--- 插入著作與計畫測試資料 (只保留其他作者)
+-- 著作與計畫資料 (只保留其他作者)
 INSERT INTO Publications (teacher_id, work_type, title, authors, publish_year) VALUES
 (1, '發表期刊論文', '雲端運算架構分析與最佳化', '張三', '2023-05'),
 (1, '會議論文', '深度學習在邊緣運算之應用', '李四', '2022-11'),
@@ -180,26 +205,42 @@ INSERT INTO Publications (teacher_id, work_type, title, authors, publish_year) V
 (2, '國科會計畫', '巨量資料探勘技術研究', '', '2023'),
 (2, '發表期刊論文', '基於圖神經網絡之推薦系統', '王五', '2023-08');
 
--- 插入學生資訊
+-- 教師異動日誌
+INSERT INTO TeacherLogs (teacher_id, action_type, description) VALUES
+(1, '基本資料更新', '系統初始化：建立了聯絡資訊與經歷資料。'),
+(2, '著作與計畫', '系統初始化：匯入了國科會計畫與期刊論文。');
+
+-- 學生資訊
 INSERT INTO Students (student_id, user_id, name, enrollment_year) VALUES
 ('B110001', 5, '李小華', 2022),
 ('B110002', 6, '張偉', 2022),
 ('B110003', 7, '王小明', 2023);
 
--- 插入課程資訊 (採用預設的 30/30/40 權重)
+-- 課程開課資料 (加權預設 30/30/40)
 INSERT INTO Courses (course_code, course_name, semester, teacher_id, capacity, schedule, room) VALUES
 ('CS101', '計算機概論', '113-1', 1, 50, '一 2,3,4', '資工系館 R101'),
 ('CS305', '資料庫系統', '113-1', 2, 40, '二 2,3,4', '資工系館 R102'),
 ('CS201', '演算法', '113-1', 3, 50, '三 5,6,7', '資工系館 R201');
 
--- 插入選課紀錄 (確定的課表)
+-- 空間預約預設測試資料 (⚠️ 已對應新欄位：日期 + 節次)
+-- 狀態：Approved (已核准), Pending (待審核)
+INSERT INTO Reservations (student_id, room_name, purpose, reserve_date, start_period, end_period, status) VALUES
+('B110001', '討論室 101 (4人)', '期末專題小組討論', DATE_ADD(CURDATE(), INTERVAL 2 DAY), 3, 5, 'Approved'),
+('B110002', '討論室 103 (6人)', '演算法課後研討', DATE_ADD(CURDATE(), INTERVAL 3 DAY), 7, 8, 'Pending');
+
+-- 選課正式紀錄
 INSERT INTO Enrollments (student_id, course_id, assignment_scores, midterm_score, final_score, total_score) VALUES
 ('B110001', 1, 85, 90, 88, 88),
 ('B110002', 1, 70, 65, 80, 72),
 ('B110001', 3, NULL, 85, NULL, NULL),
 ('B110003', 2, 90, 88, 92, 90);
 
--- 插入測試用的「待審核」選課申請
+-- 選課申請流動紀錄
 INSERT INTO CourseRequests (student_id, course_id, action, status) VALUES
-('B110003', 1, 'Add', 'Pending'),  -- 王小明申請加選計算機概論
-('B110002', 1, 'Drop', 'Pending'); -- 張偉申請退選計算機概論
+('B110003', 1, 'Add', 'Pending'),
+('B110002', 1, 'Drop', 'Pending');
+
+-- 首頁佈告欄動態最新消息
+INSERT INTO News (title, content, image_path) VALUES
+('歡迎來到資工系新版入口網！', '本系統已全面升級，提供最新師資陣容、實驗室資訊，以及更便利的學生線上選課系統。', NULL),
+('113學年度第1學期 選課公告', '請各位同學注意，本學期加退選時間將於下週五截止，請盡速登入後至「線上自主選課系統」提交申請，逾期不予受理。', NULL);
