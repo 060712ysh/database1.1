@@ -2,22 +2,22 @@
 // 判斷是否為管理員
 $is_admin = (isset($_SESSION['role']) && $_SESSION['role'] == 'Admin');
 
-// --- 處理管理員發布新消息 (含圖片上傳) ---
+// --- 處理管理員發布新消息 (含圖片上傳與日誌) ---
 if ($is_admin && $_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_news'])) {
     $title = trim($_POST['title']);
     $content = trim($_POST['content']);
     $image_path = null;
-    $upload_msg = ""; // 儲存上傳狀態的訊息
+    $upload_msg = ""; 
+    $admin_uid = intval($_SESSION['user_id']); // 用於操作日誌
 
     // 處理圖片上傳
     if (isset($_FILES['news_image']) && $_FILES['news_image']['name'] != '') {
         if ($_FILES['news_image']['error'] == 0) {
             $upload_dir = 'uploads/news/';
             
-            // 若資料夾不存在則自動建立，並檢查是否成功
             if (!is_dir($upload_dir)) {
                 if(!@mkdir($upload_dir, 0777, true)) {
-                    $upload_msg = "<div style='color:red; margin-top:10px;'>⚠️ 錯誤：無法建立 {$upload_dir} 資料夾，請手動新增該資料夾並設定寫入權限！</div>";
+                    $upload_msg = "<div style='color:red; margin-top:10px;'>⚠️ 錯誤：無法建立 {$upload_dir} 資料夾！</div>";
                 }
             }
             
@@ -28,23 +28,21 @@ if ($is_admin && $_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_news'
                 $new_filename = uniqid('news_') . '.' . $file_ext;
                 $target_file = $upload_dir . $new_filename;
                 
-                // 嘗試將暫存檔搬移到目標資料夾
                 if (move_uploaded_file($_FILES['news_image']['tmp_name'], $target_file)) {
                     $image_path = $target_file;
-                    $upload_msg = "<div style='color:green; margin-top:10px;'>✓ 圖片上傳且儲存成功！</div>";
+                    $upload_msg = "<div style='color:green; margin-top:10px;'>✓ 圖片上傳成功！</div>";
                 } else {
-                    $upload_msg = "<div style='color:red; margin-top:10px;'>⚠️ 錯誤：無法將圖片移至 {$upload_dir} (通常是資料夾權限不足)。</div>";
+                    $upload_msg = "<div style='color:red; margin-top:10px;'>⚠️ 錯誤：無法搬移上傳檔案 (資料夾寫入權限不足)。</div>";
                 }
             } else {
-                $upload_msg = "<div style='color:#ffc107; margin-top:10px;'>⚠️ 警告：圖片格式僅支援 JPG, PNG, GIF。</div>";
+                $upload_msg = "<div style='color:#ffc107; margin-top:10px;'>⚠️ 警告：不支援的圖片格式。</div>";
             }
         } else {
-            // 擷取 PHP 上傳錯誤代碼
             $err_code = $_FILES['news_image']['error'];
             if ($err_code == 1 || $err_code == 2) {
-                $upload_msg = "<div style='color:red; margin-top:10px;'>⚠️ 錯誤：圖片檔案太大！超過了伺服器 (php.ini) 預設的 2MB 限制。</div>";
+                $upload_msg = "<div style='color:red; margin-top:10px;'>⚠️ 錯誤：圖片大小超過 2MB 限制！</div>";
             } else {
-                $upload_msg = "<div style='color:red; margin-top:10px;'>⚠️ 錯誤：圖片上傳失敗，未知錯誤代碼：{$err_code}</div>";
+                $upload_msg = "<div style='color:red; margin-top:10px;'>⚠️ 錯誤：代碼 {$err_code}</div>";
             }
         }
     }
@@ -53,22 +51,44 @@ if ($is_admin && $_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_news'
         $stmt = $conn->prepare("INSERT INTO News (title, content, image_path) VALUES (?, ?, ?)");
         $stmt->bind_param("sss", $title, $content, $image_path);
         if ($stmt->execute()) {
+            
+            // 📝【新增連動】寫入操作日誌
+            $log_desc = "發布了首頁最新消息，標題: {$title}";
+            $log_stmt = $conn->prepare("INSERT INTO AdminLogs (user_id, action_type, description) VALUES (?, '最新消息', ?)");
+            $log_stmt->bind_param("is", $admin_uid, $log_desc);
+            $log_stmt->execute();
+            $log_stmt->close();
+
             echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>最新消息已發布！{$upload_msg}</div>";
         }
+        $stmt->close();
     }
 }
 
-// --- 處理管理員刪除消息 ---
+// --- 處理管理員刪除消息 (含圖片移除與日誌) ---
 if ($is_admin && $_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_news'])) {
     $del_id = intval($_POST['news_id']);
-    $get_img = $conn->query("SELECT image_path FROM News WHERE news_id = $del_id");
+    $admin_uid = intval($_SESSION['user_id']); // 用於操作日誌
+    
+    // 先查出檔案並刪除實體圖片
+    $get_img = $conn->query("SELECT title, image_path FROM News WHERE news_id = $del_id");
     if ($row = $get_img->fetch_assoc()) {
+        $news_title = $row['title'];
         if (!empty($row['image_path']) && file_exists($row['image_path'])) {
-            unlink($row['image_path']); // 刪除實體檔案
+            unlink($row['image_path']); 
         }
+        
+        $conn->query("DELETE FROM News WHERE news_id = $del_id");
+
+        // 📝【新增連動】寫入操作日誌
+        $log_desc = "移除了首頁最新消息，原標題: {$news_title}";
+        $log_stmt = $conn->prepare("INSERT INTO AdminLogs (user_id, action_type, description) VALUES (?, '最新消息', ?)");
+        $log_stmt->bind_param("is", $admin_uid, $log_desc);
+        $log_stmt->execute();
+        $log_stmt->close();
+
+        echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>消息與圖片已同步移除！</div>";
     }
-    $conn->query("DELETE FROM News WHERE news_id = $del_id");
-    echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>消息與圖片已刪除！</div>";
 }
 ?>
 
@@ -85,7 +105,7 @@ if ($is_admin && $_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_ne
         <textarea name="content" rows="4" placeholder="消息內容 (必填)" required style="padding:10px; border:1px solid #ccc; border-radius:4px; resize:vertical; font-size:1em; font-family:inherit;"></textarea>
         <div style="background: #fff; padding: 10px; border: 1px dashed #17a2b8; border-radius: 4px;">
             <label style="color:#555; font-weight:bold; cursor:pointer;">
-                🖼️ 上傳附圖 (選填，建議 2MB 以下)：<br>
+                🖼️ 上傳附圖 (選填，格式限 JPG, PNG, GIF)：<br>
                 <input type="file" name="news_image" accept="image/jpeg, image/png, image/gif" style="margin-top:8px;">
             </label>
         </div>
@@ -99,14 +119,11 @@ if ($is_admin && $_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_ne
     
     <?php
     $news_list = $conn->query("SELECT * FROM News ORDER BY created_at DESC");
-    
     if ($news_list && $news_list->num_rows > 0) {
         echo "<div style='display:flex; flex-direction:column; gap:20px; margin-top:20px;'>";
         while ($news = $news_list->fetch_assoc()) {
             $date = date('Y-m-d H:i', strtotime($news['created_at']));
-            
             echo "<div class='card' style='margin-bottom:0; box-shadow:0 3px 10px rgba(0,0,0,0.08); border-left: 4px solid #007bff; overflow:hidden;'>";
-            
             echo "<div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;'>";
             echo "<div>";
             echo "<h4 style='margin:0 0 8px 0; color:#0056b3; font-size:1.3em;'>" . htmlspecialchars($news['title']) . "</h4>";
@@ -120,18 +137,13 @@ if ($is_admin && $_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_ne
                 echo "</form>";
             }
             echo "</div>";
+            echo "<div style='line-height:1.7; color:#333; font-size:1.05em; margin-bottom:15px; white-space:pre-wrap;'>" . htmlspecialchars($news['content']) . "</div>";
             
-            echo "<div style='line-height:1.7; color:#333; font-size:1.05em; margin-bottom:15px;'>";
-            echo nl2br(htmlspecialchars($news['content']));
-            echo "</div>";
-            
-            // 取消前端的 file_exists 嚴格檢查，如果圖片破圖會直接顯示破圖圖示，幫助除錯路徑問題
             if (!empty($news['image_path'])) {
                 echo "<div style='margin-top:15px; text-align:center; background:#f8f9fa; padding:10px; border-radius:6px;'>";
                 echo "<img src='" . htmlspecialchars($news['image_path']) . "' alt='附圖' style='max-width:100%; max-height:450px; border-radius:4px; box-shadow:0 2px 5px rgba(0,0,0,0.15);'>";
                 echo "</div>";
             }
-            
             echo "</div>";
         }
         echo "</div>";

@@ -5,7 +5,7 @@
 <a href="index.php?page=review_messages">💬 留言回復</a>
 <a href="index.php?page=manage_enrollments">📝 學生選課管理</a>
 <a href="index.php?page=manage_files">📁 檔案管理</a>
-<a href="index.php?page=teacher_logs">📜 教師更新日誌</a>
+<a href="index.php?page=admin_logs">📜 系統操作日誌</a>
 <a href="index.php?page=view_database">🗄️ 資料庫總覽</a>
 <hr style="margin: 10px 0; border: none; border-top: 1px solid #34495e;">
 <a href="logout.php" style="background-color: #e74c3c; text-align: center; font-weight: bold;">🚪 登出</a>

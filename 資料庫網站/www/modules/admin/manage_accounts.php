@@ -6,6 +6,8 @@
     if($_SESSION['role'] != 'Admin') {
         echo "<p style='color:red;'>只有管理員可以使用此功能。</p>";
     } else {
+        $admin_uid = intval($_SESSION['user_id']); // 用於操作日誌
+
         // --- 處理 1：新增帳號 ---
         if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_account'])) {
             $role = trim($_POST['role'] ?? '');
@@ -40,10 +42,19 @@
                         $insert_a->bind_param("iss", $user_id, $name, $title);
                         $insert_a->execute();
                     }
+
+                    // 📝【新增連動】寫入系統操作日誌
+                    $log_desc = "建立了新帳號，帳號名稱: {$username}，真實姓名: {$name}，角色身分: {$role}";
+                    $log_stmt = $conn->prepare("INSERT INTO AdminLogs (user_id, action_type, description) VALUES (?, '帳號建立', ?)");
+                    $log_stmt->bind_param("is", $admin_uid, $log_desc);
+                    $log_stmt->execute();
+                    $log_stmt->close();
+
                     echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>帳號已新增 ($name)</div>";
                 } else {
                     echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 失敗：</strong>登入帳號已存在</div>";
                 }
+                $check->close();
             } else {
                 echo "<div class='card' style='background:#fff3cd; border-left:4px solid #ffc107;'>請填寫完整資訊！</div>";
             }
@@ -82,7 +93,7 @@
         }
         
         // ==========================================
-        // 畫面顯示區塊
+        // 畫面顯示區塊 (維持原功能不變)
         // ==========================================
         echo "<form method='POST' style='background:#f4f6f9; padding: 15px; border-radius: 5px; margin-bottom: 20px;'>";
         echo "<div style='display:grid; grid-template-columns: 1fr 1fr 1fr; gap:15px;'>";
@@ -95,11 +106,9 @@
         echo "</div>";
         echo "</form>";
         
-        // 帳號清單 (包含動態更新表單)
         echo "<table style='width:100%; border-collapse: collapse; font-size:0.95em;'>";
         echo "<tr style='background:#f4f6f9;'><th style='padding:10px;'>ID</th><th style='padding:10px;'>登入帳號</th><th style='padding:10px;'>身分</th><th style='padding:10px;'>真實姓名</th><th style='padding:10px;'>職稱</th><th style='padding:10px;'>操作</th></tr>";
         
-        // 使用 LEFT JOIN 一次撈出所有人的姓名與職稱
         $users = $conn->query("
             SELECT u.id, u.username, u.role, 
                    COALESCE(t.name, s.name, a.name) AS real_name, 
@@ -121,26 +130,14 @@
             echo "<td style='padding:10px;'>" . htmlspecialchars($u['username']) . "</td>";
             echo "<td style='padding:10px;'>" . $u['role'] . "</td>";
             
-            // 姓名輸入框
             echo "<td style='padding:10px;'><input type='text' name='new_name' value='" . htmlspecialchars($u['real_name'] ?? '') . "' style='width:100px; padding:6px; margin:0;' required></td>";
             
-            // 職稱輸入框 (學生不顯示)
             if ($u['role'] == 'Student') {
                 echo "<td style='padding:10px;'><span style='color:#999; font-size:0.9em;'>不適用</span></td>";
             } else {
                 echo "<td style='padding:10px;'><input type='text' name='new_title' value='" . htmlspecialchars($u['job_title'] ?? '') . "' style='width:100px; padding:6px; margin:0;'></td>";
             }
             
-            // 操作按鈕
             echo "<td style='padding:10px; display:flex; gap:5px;'>";
             echo "<button type='submit' name='update_account' class='btn' style='background:#17a2b8; padding:5px 10px; font-size:0.9em;'>更新</button>";
-            echo "<button type='submit' name='delete_account' class='btn' style='background:#dc3545; padding:5px 10px; font-size:0.9em;' onclick='return confirm(\"確定刪除此帳號？\");'>刪除</button>";
-            echo "</td>";
-            
-            echo "</form>";
-            echo "</tr>";
-        }
-        echo "</table>";
-    }
-    ?>
-</div>
+            echo "<button type='submit' name='delete_account' class='btn

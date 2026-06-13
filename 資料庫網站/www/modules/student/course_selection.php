@@ -9,10 +9,9 @@
         
         // --- 處理送出申請單 ---
         if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
-            $action = $_POST['action']; // 'Add' 或是 'Drop'
+            $action = $_POST['action']; 
             $course_id = intval($_POST['course_id']);
             
-            // 檢查是否已經有審核中的相同申請，避免重複送出
             $check_req = $conn->query("SELECT request_id FROM CourseRequests WHERE student_id='$student_id' AND course_id=$course_id AND status='Pending'");
             if ($check_req->num_rows == 0) {
                 $ins_req = $conn->prepare("INSERT INTO CourseRequests (student_id, course_id, action) VALUES (?, ?, ?)");
@@ -24,9 +23,8 @@
             }
         }
         
-        // 取得課程與選課人數
         $courses = $conn->query("
-            SELECT c.course_id, c.course_code, c.course_name, c.schedule, c.room, c.syllabus, 
+            SELECT c.course_id, c.course_code, c.course_name, c.schedule, c.room, 
                    t.name as teacher_name, c.capacity, COUNT(e.enrollment_id) as enrolled
             FROM Courses c
             LEFT JOIN Teachers t ON c.teacher_id = t.teacher_id
@@ -34,16 +32,14 @@
             WHERE c.semester = '113-1' GROUP BY c.course_id ORDER BY c.course_code
         ");
         
-        // 取得學生目前已確定的課表
         $my_courses = $conn->query("SELECT course_id FROM Enrollments WHERE student_id = '$student_id'");
         $my_course_ids = [];
         while($row = $my_courses->fetch_assoc()) $my_course_ids[] = $row['course_id'];
 
-        // 取得學生目前審核中的申請
         $pending_reqs = $conn->query("SELECT course_id, action FROM CourseRequests WHERE student_id = '$student_id' AND status = 'Pending'");
         $pending_data = [];
         while($row = $pending_reqs->fetch_assoc()) {
-            $pending_data[$row['course_id']] = $row['action']; // 'Add' 或 'Drop'
+            $pending_data[$row['course_id']] = $row['action']; 
         }
         
         echo "<p style='color:#007bff; font-weight:bold;'>當前學期：113-1 ｜ 🟢 加退選開放申請中</p>";
@@ -54,7 +50,6 @@
             $is_enrolled = in_array($course['course_id'], $my_course_ids);
             $pending_action = $pending_data[$course['course_id']] ?? null;
             $is_full = $course['enrolled'] >= $course['capacity'];
-            
             $bg_color = $is_enrolled ? '#e8f4fd' : ($is_full ? '#fff3f3' : '');
             
             echo "<tr style='border-bottom:1px solid #e0e0e0; background:$bg_color;'>";
@@ -63,13 +58,11 @@
             echo "<td style='padding:10px;'>" . htmlspecialchars($course['teacher_name'] ?? '未指派') . "</td>";
             echo "<td style='padding:10px;'><span style='color:#d35400; font-weight:bold;'>🕒 " . htmlspecialchars($course['schedule']) . "</span><br><span style='color:#666; font-size:0.9em;'>📍 " . htmlspecialchars($course['room'] ?? '未定') . "</span></td>";
             
-            echo "<td style='padding:10px;'><button type='button' class='btn' style='background:#17a2b8; padding:5px 10px; font-size:0.9em;' onclick='openSyllabusModal({$course['course_id']})'>📄 查看</button>";
-            echo "<div id='syllabus_content_{$course['course_id']}' style='display:none;'>" . nl2br(htmlspecialchars($course['syllabus'] ?? '無大綱')) . "</div>";
-            echo "<input type='hidden' id='syllabus_title_{$course['course_id']}' value='" . htmlspecialchars($course['course_name']) . "'></td>";
+            // ⚠️ 關鍵升級：此處直接導向新頁面 syllabus_detail 進行展示
+            echo "<td style='padding:10px;'><a href='index.php?page=syllabus_detail&id={$course['course_id']}' class='btn' style='background:#17a2b8; padding:5px 10px; font-size:0.9em;'>📄 查看</a></td>";
 
             echo "<td style='padding:10px;" . ($is_full ? "color:red;" : "color:green;") . "'>" . $course['enrolled'] . " / " . $course['capacity'] . ($is_full ? " (滿)" : "") . "</td>";
             
-            // 動態按鈕邏輯
             echo "<td style='padding:10px;'>";
             if ($pending_action == 'Add') {
                 echo "<button class='btn' style='background:#6c757d; cursor:not-allowed;' disabled>⏳ 加選審核中</button>";
@@ -90,11 +83,3 @@
     }
     ?>
 </div>
-
-<script>
-function openSyllabusModal(courseId) {
-    var title = document.getElementById('syllabus_title_' + courseId).value;
-    var content = document.getElementById('syllabus_content_' + courseId).innerHTML;
-    alert('【' + title + ' 大綱】\n' + content.replace(/<br\s*[\/]?>/gi, "\n")); // 簡單示範，您可保留原本的華麗 Modal 程式碼
-}
-</script>
