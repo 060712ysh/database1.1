@@ -1,4 +1,4 @@
-﻿﻿<div class="card" style="max-width: 500px; margin: 40px auto;">
+﻿﻿﻿<div class="card" style="max-width: 500px; margin: 40px auto;">
     <h2 style="margin-top:0; text-align: center;">🔐 系統登入</h2>
     <form method="POST" action="index.php?page=login">
         <label for="username">帳號：</label>
@@ -12,8 +12,8 @@
         <div style="margin-top: 15px; padding: 10px; background: #f0f8ff; border-left: 4px solid #007bff; border-radius: 4px; font-size: 0.9em;">
             <strong>測試帳號：</strong><br>
             <strong>管理員：</strong> admin / admin<br>
-            <strong>教師：</strong> t00002 / admin<br>
-            <strong>學生：</strong> s00005 / admin<br>
+            <strong>教師：</strong> t00001 / admin<br>
+            <strong>學生：</strong> s00001 / admin<br>
             <em>所有測試帳號密碼均為 admin</em>
         </div>
     </form>
