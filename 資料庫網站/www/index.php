@@ -44,7 +44,7 @@ $page = isset($_GET['page']) ? $_GET['page'] : 'home';
                 $page_name = basename($page); 
 
                 // ⚠️ 這裡加入了 'syllabus_detail' 以便跳轉至獨立大綱頁面
-                if (in_array($page_name, ['home', 'faculty', 'labs', 'teacher_detail', 'downloads', 'syllabus_detail'])) {
+                if (in_array($page_name, ['home', 'faculty', 'labs', 'teacher_detail', 'downloads', 'syllabus_detail', 'change_password'])) {
                     $module_path = 'modules/public/' . $page_name . '.php';
                 } else if ($role == 'Admin' && in_array($page_name, ['manage_accounts', 'manage_courses', 'manage_enrollments', 'review_reservations', 'review_messages', 'manage_files', 'view_database', 'admin_logs'])) {
                     $module_path = 'modules/admin/' . $page_name . '.php';

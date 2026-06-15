@@ -1,9 +1,9 @@
 ﻿<div class="card">
     <h2>👥 系統帳號管理</h2>
-    <p>建立管理員、教師或學生帳號，並統一管理使用者的「真實姓名」與「職稱」。</p>
+    <p>建立管理員、教師或學生帳號，並統一管理使用者的「真實姓名」與「職稱」。<strong style="color:#007bff;">（💡 新增帳號的預設登入密碼皆為：123456）</strong></p>
     
     <?php
-    if($_SESSION['role'] != 'Admin') {
+    if(!isset($_SESSION['role']) || $_SESSION['role'] != 'Admin') {
         echo "<p style='color:red;'>只有管理員可以使用此功能。</p>";
     } else {
         $admin_uid = intval($_SESSION['user_id']); // 用於操作日誌
@@ -12,47 +12,61 @@
         if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_account'])) {
             $role = trim($_POST['role'] ?? '');
             $username = trim($_POST['username'] ?? '');
-            $password = trim($_POST['password'] ?? '');
             $name = trim($_POST['name'] ?? '');
             $title = trim($_POST['title'] ?? '');
+            $default_password = '123456'; // 🔒 直接在此固定預設密碼
             
-            if($username && $password && $name && in_array($role, ['Student', 'Teacher', 'Admin'])) {
+            if($username && $name && in_array($role, ['Student', 'Teacher', 'Admin'])) {
+                // 檢查帳號是否重複
                 $check = $conn->prepare("SELECT id FROM Users WHERE username = ?");
                 $check->bind_param("s", $username);
                 $check->execute();
+                $check->store_result(); // 防呆：避免沒有 mysqlnd 導致 get_result() 報錯當機
                 
-                if($check->get_result()->num_rows == 0) {
-                    $password_hash = password_hash($password, PASSWORD_DEFAULT);
+                if($check->num_rows == 0) {
+                    $password_hash = password_hash($default_password, PASSWORD_DEFAULT);
                     $insert = $conn->prepare("INSERT INTO Users (username, password_hash, role) VALUES (?, ?, ?)");
                     $insert->bind_param("sss", $username, $password_hash, $role);
-                    $insert->execute();
-                    $user_id = $conn->insert_id;
                     
-                    if($role == 'Teacher') {
-                        $insert_t = $conn->prepare("INSERT INTO Teachers (user_id, name, title, department) VALUES (?, ?, ?, '資訊工程學系')");
-                        $insert_t->bind_param("iss", $user_id, $name, $title);
-                        $insert_t->execute();
-                    } else if($role == 'Student') {
-                        $student_id = 'B' . $user_id . date('s');
-                        $insert_s = $conn->prepare("INSERT INTO Students (student_id, user_id, name, enrollment_year) VALUES (?, ?, ?, 2024)");
-                        $insert_s->bind_param("sis", $student_id, $user_id, $name);
-                        $insert_s->execute();
-                    } else if($role == 'Admin') {
-                        $insert_a = $conn->prepare("INSERT INTO Admins (user_id, name, title) VALUES (?, ?, ?)");
-                        $insert_a->bind_param("iss", $user_id, $name, $title);
-                        $insert_a->execute();
+                    if ($insert->execute()) {
+                        $user_id = $conn->insert_id;
+                        $sub_success = true;
+                        
+                        if($role == 'Teacher') {
+                            $insert_t = $conn->prepare("INSERT INTO Teachers (user_id, name, title, department) VALUES (?, ?, ?, '資訊工程學系')");
+                            $insert_t->bind_param("iss", $user_id, $name, $title);
+                            $sub_success = $insert_t->execute();
+                        } else if($role == 'Student') {
+                            $student_id = 'B' . $user_id . date('s');
+                            $insert_s = $conn->prepare("INSERT INTO Students (student_id, user_id, name, enrollment_year) VALUES (?, ?, ?, 2024)");
+                            $insert_s->bind_param("sis", $student_id, $user_id, $name);
+                            $sub_success = $insert_s->execute();
+                        } else if($role == 'Admin') {
+                            $insert_a = $conn->prepare("INSERT INTO Admins (user_id, name, title) VALUES (?, ?, ?)");
+                            $insert_a->bind_param("iss", $user_id, $name, $title);
+                            $sub_success = $insert_a->execute();
+                        }
+
+                        if ($sub_success) {
+                            // 📝【新增連動】寫入操作日誌
+                            $log_desc = "建立了新帳號，帳號名稱: {$username}，真實姓名: {$name}，角色身分: {$role} (密碼已自動設為 123456)";
+                            $log_stmt = $conn->prepare("INSERT INTO AdminLogs (user_id, action_type, description) VALUES (?, '帳號建立', ?)");
+                            if ($log_stmt) {
+                                $log_stmt->bind_param("is", $admin_uid, $log_desc);
+                                $log_stmt->execute();
+                                $log_stmt->close();
+                            }
+                            echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>帳號已新增 ($name)</div>";
+                        } else {
+                            // 若子表格寫入失敗，刪除剛剛建好的 User，避免產生孤兒帳號
+                            $conn->query("DELETE FROM Users WHERE id = $user_id");
+                            echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 失敗：</strong>詳細資料寫入異常 (" . $conn->error . ")</div>";
+                        }
+                    } else {
+                        echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 失敗：</strong>" . $conn->error . "</div>";
                     }
-
-                    // 📝【新增連動】寫入系統操作日誌
-                    $log_desc = "建立了新帳號，帳號名稱: {$username}，真實姓名: {$name}，角色身分: {$role}";
-                    $log_stmt = $conn->prepare("INSERT INTO AdminLogs (user_id, action_type, description) VALUES (?, '帳號建立', ?)");
-                    $log_stmt->bind_param("is", $admin_uid, $log_desc);
-                    $log_stmt->execute();
-                    $log_stmt->close();
-
-                    echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>帳號已新增 ($name)</div>";
                 } else {
-                    echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 失敗：</strong>登入帳號已存在</div>";
+                    echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 失敗：</strong>該登入帳號已被使用！</div>";
                 }
                 $check->close();
             } else {
@@ -93,22 +107,20 @@
         }
         
         // ==========================================
-        // 畫面顯示區塊 (維持原功能不變)
+        // 畫面顯示區塊
         // ==========================================
         echo "<form method='POST' style='background:#f4f6f9; padding: 15px; border-radius: 5px; margin-bottom: 20px;'>";
-        echo "<div style='display:grid; grid-template-columns: 1fr 1fr 1fr; gap:15px;'>";
+        // 移除密碼欄位，調整網格配置讓排版維持美觀
+        echo "<div style='display:grid; grid-template-columns: 1fr 1.5fr 1.5fr 1.5fr auto; gap:15px; align-items:flex-end;'>";
         echo "<div><label>帳號角色：</label><select name='role'><option value='Student'>學生 (Student)</option><option value='Teacher'>教師 (Teacher)</option><option value='Admin'>管理員 (Admin)</option></select></div>";
         echo "<div><label>登入帳號：</label><input type='text' name='username' required></div>";
-        echo "<div><label>登入密碼：</label><input type='text' name='password' required></div>";
         echo "<div><label>真實姓名：</label><input type='text' name='name' required></div>";
         echo "<div><label>職稱 (學生免填)：</label><input type='text' name='title' placeholder='如：系辦助理、教授'></div>";
-        echo "<div style='display:flex; align-items:flex-end;'><button type='submit' name='add_account' class='btn' style='width:100%;'>＋ 建立新帳號</button></div>";
+        echo "<div><button type='submit' name='add_account' class='btn' style='width:100%;'>＋ 建立新帳號</button></div>";
         echo "</div>";
         echo "</form>";
         
-        echo "<table style='width:100%; border-collapse: collapse; font-size:0.95em;'>";
-        echo "<tr style='background:#f4f6f9;'><th style='padding:10px;'>ID</th><th style='padding:10px;'>登入帳號</th><th style='padding:10px;'>身分</th><th style='padding:10px;'>真實姓名</th><th style='padding:10px;'>職稱</th><th style='padding:10px;'>操作</th></tr>";
-        
+        // 動態撈取所有人的姓名與職稱
         $users = $conn->query("
             SELECT u.id, u.username, u.role, 
                    COALESCE(t.name, s.name, a.name) AS real_name, 
@@ -120,24 +132,44 @@
             ORDER BY u.role, u.id
         ");
         
-        while($u = $users->fetch_assoc()) {
-            echo "<tr style='border-bottom:1px solid #eee;'>";
-            echo "<form method='POST' style='margin:0;'>";
-            echo "<input type='hidden' name='user_id' value='".$u['id']."'>";
-            echo "<input type='hidden' name='user_role' value='".$u['role']."'>";
+        if (!$users) {
+            echo "<div style='background:#f8d7da; color:#dc3545; padding:20px; border-radius:5px; border:1px solid #f5c6cb;'>";
+            echo "<h4 style='margin-top:0;'>⚠️ 資料庫讀取異常</h4>";
+            echo "<p>系統無法載入帳號清單，可能是表格結構尚未更新。錯誤訊息如下：<br>";
+            echo "<strong>" . htmlspecialchars($conn->error) . "</strong></p>";
+            echo "</div>";
+        } else {
+            echo "<table style='width:100%; border-collapse: collapse; font-size:0.95em;'>";
+            echo "<tr style='background:#f4f6f9;'><th style='padding:10px;'>ID</th><th style='padding:10px;'>登入帳號</th><th style='padding:10px;'>身分</th><th style='padding:10px;'>真實姓名</th><th style='padding:10px;'>職稱</th><th style='padding:10px;'>操作</th></tr>";
             
-            echo "<td style='padding:10px;'>" . $u['id'] . "</td>";
-            echo "<td style='padding:10px;'>" . htmlspecialchars($u['username']) . "</td>";
-            echo "<td style='padding:10px;'>" . $u['role'] . "</td>";
-            
-            echo "<td style='padding:10px;'><input type='text' name='new_name' value='" . htmlspecialchars($u['real_name'] ?? '') . "' style='width:100px; padding:6px; margin:0;' required></td>";
-            
-            if ($u['role'] == 'Student') {
-                echo "<td style='padding:10px;'><span style='color:#999; font-size:0.9em;'>不適用</span></td>";
-            } else {
-                echo "<td style='padding:10px;'><input type='text' name='new_title' value='" . htmlspecialchars($u['job_title'] ?? '') . "' style='width:100px; padding:6px; margin:0;'></td>";
+            while($u = $users->fetch_assoc()) {
+                echo "<tr style='border-bottom:1px solid #eee;'>";
+                echo "<form method='POST' style='margin:0;'>";
+                echo "<input type='hidden' name='user_id' value='".$u['id']."'>";
+                echo "<input type='hidden' name='user_role' value='".$u['role']."'>";
+                
+                echo "<td style='padding:10px;'>" . $u['id'] . "</td>";
+                echo "<td style='padding:10px;'>" . htmlspecialchars($u['username']) . "</td>";
+                echo "<td style='padding:10px;'>" . $u['role'] . "</td>";
+                
+                echo "<td style='padding:10px;'><input type='text' name='new_name' value='" . htmlspecialchars($u['real_name'] ?? '') . "' style='width:100px; padding:6px; margin:0;' required></td>";
+                
+                if ($u['role'] == 'Student') {
+                    echo "<td style='padding:10px;'><span style='color:#999; font-size:0.9em;'>不適用</span></td>";
+                } else {
+                    echo "<td style='padding:10px;'><input type='text' name='new_title' value='" . htmlspecialchars($u['job_title'] ?? '') . "' style='width:100px; padding:6px; margin:0;'></td>";
+                }
+                
+                echo "<td style='padding:10px; display:flex; gap:5px;'>";
+                echo "<button type='submit' name='update_account' class='btn' style='background:#17a2b8; padding:5px 10px; font-size:0.9em;'>更新</button>";
+                echo "<button type='submit' name='delete_account' class='btn' style='background:#dc3545; padding:5px 10px; font-size:0.9em;' onclick='return confirm(\"確定刪除此帳號？\");'>刪除</button>";
+                echo "</td>";
+                
+                echo "</form>";
+                echo "</tr>";
             }
-            
-            echo "<td style='padding:10px; display:flex; gap:5px;'>";
-            echo "<button type='submit' name='update_account' class='btn' style='background:#17a2b8; padding:5px 10px; font-size:0.9em;'>更新</button>";
-            echo "<button type='submit' name='delete_account' class='btn
+            echo "</table>";
+        }
+    }
+    ?>
+</div>
