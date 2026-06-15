@@ -1,6 +1,6 @@
 ﻿<div class="card">
     <h2>📚 學期開課管理</h2>
-    <p>管理員可在此新增、修改與刪除本學期的課程資訊。上課時間請直接勾選對應的星期與節次。</p>
+    <p>管理員可在此新增、修改與刪除本學期的課程資訊。</p>
 
     <?php
     if ($_SESSION['role'] != 'Admin') {
@@ -13,7 +13,47 @@
             return $day . ' ' . implode(',', $periods_arr);
         }
 
-        // 1. 處理新增課程
+        // --- 🚀 核心衝堂檢查引擎 ---
+        // 回傳 false 代表沒衝突；回傳字串代表衝突的錯誤訊息
+        function checkConflict($conn, $sem, $sch_day, $sch_periods_arr, $room, $tid, $exclude_cid = 0) {
+            $safe_sem = $conn->real_escape_string($sem);
+            $safe_exclude_cid = intval($exclude_cid);
+
+            // 撈取同一個學期所有的課程進行比對
+            $res = $conn->query("SELECT course_code, course_name, schedule, room, teacher_id FROM Courses WHERE semester = '$safe_sem' AND course_id != $safe_exclude_cid");
+
+            while($row = $res->fetch_assoc()) {
+                $existing_sch = trim($row['schedule']);
+                if(empty($existing_sch)) continue;
+
+                $parts = explode(' ', $existing_sch);
+                if(count($parts) < 2) continue;
+
+                $e_day = $parts[0];
+                $e_periods = explode(',', $parts[1]);
+
+                // 如果星期一樣，就比對節次有沒有交集
+                if($e_day === $sch_day) {
+                    $intersect = array_intersect($sch_periods_arr, $e_periods);
+                    if(count($intersect) > 0) {
+                        $conflict_periods_str = implode(',', $intersect);
+
+                        // 檢查 1：同一個老師衝堂
+                        if($row['teacher_id'] == $tid) {
+                            return "【教師衝堂】該授課教師在同一時間已被安排教授「{$row['course_code']} {$row['course_name']}」(衝突節次：星期{$sch_day} 第 {$conflict_periods_str} 節)。";
+                        }
+
+                        // 檢查 2：同一個教室衝堂
+                        if(trim($row['room']) === trim($room)) {
+                            return "【教室衝堂】「{$room}」在該時段已被「{$row['course_code']} {$row['course_name']}」借用 (衝突節次：星期{$sch_day} 第 {$conflict_periods_str} 節)。";
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        // --- 處理 1：新增課程 ---
         if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_course'])) {
             $code = trim($_POST['course_code']);
             $name = trim($_POST['course_name']);
@@ -22,24 +62,46 @@
             $room = trim($_POST['room']);
             $sem = '113-1';
             
-            $sch = buildScheduleString($_POST['sch_day'] ?? '', $_POST['sch_periods'] ?? []);
+            $sch_day = $_POST['sch_day'] ?? '';
+            $sch_periods = $_POST['sch_periods'] ?? [];
+            $sch = buildScheduleString($sch_day, $sch_periods);
+            
+            $error_msg = "";
 
-            if ($code && $name) {
-                if(empty($sch)) {
-                    echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 失敗：</strong>請確實選擇上課的星期與節次。</div>";
-                } else {
-                    $ins = $conn->prepare("INSERT INTO Courses (course_code, course_name, semester, teacher_id, capacity, schedule, room) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                    $ins->bind_param("sssiiss", $code, $name, $sem, $tid, $cap, $sch, $room);
-                    if ($ins->execute()) {
-                        echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>課程新增完成。</div>";
-                    } else {
-                        echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 失敗：</strong>" . $conn->error . "</div>";
-                    }
+            // 基礎防呆檢查
+            if(empty($code) || empty($name) || empty($room) || $tid <= 0) $error_msg = "請填寫所有必填欄位！";
+            else if($cap <= 0) $error_msg = "修課人數上限必須大於 0！";
+            else if(empty($sch_day) || empty($sch_periods)) $error_msg = "請確實勾選上課的星期與節次！";
+            
+            // 課程代碼重複檢查
+            if(empty($error_msg)) {
+                $chk_code = $conn->query("SELECT course_id FROM Courses WHERE course_code = '{$conn->real_escape_string($code)}'");
+                if($chk_code && $chk_code->num_rows > 0) {
+                    $error_msg = "【代碼重複】課程代碼「{$code}」已被現有課程使用，請更換！";
                 }
+            }
+
+            // 衝堂檢查
+            if(empty($error_msg)) {
+                $conflict = checkConflict($conn, $sem, $sch_day, $sch_periods, $room, $tid, 0);
+                if($conflict) $error_msg = $conflict;
+            }
+
+            // 執行結果判定
+            if(empty($error_msg)) {
+                $ins = $conn->prepare("INSERT INTO Courses (course_code, course_name, semester, teacher_id, capacity, schedule, room) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                $ins->bind_param("sssiiss", $code, $name, $sem, $tid, $cap, $sch, $room);
+                if ($ins->execute()) {
+                    echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>課程「{$name}」新增完成，且通過所有排課檢查。</div>";
+                } else {
+                    echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 失敗：</strong>" . $conn->error . "</div>";
+                }
+            } else {
+                echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 新增失敗：</strong><br>{$error_msg}</div>";
             }
         }
 
-        // 2. 處理修改課程
+        // --- 處理 2：修改課程 ---
         if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_course'])) {
             $cid = intval($_POST['course_id']);
             $code = trim($_POST['course_code']);
@@ -47,23 +109,45 @@
             $tid = intval($_POST['teacher_id']);
             $cap = intval($_POST['capacity']);
             $room = trim($_POST['room']);
+            $sem = '113-1';
             
-            $sch = buildScheduleString($_POST['sch_day'] ?? '', $_POST['sch_periods'] ?? []);
+            $sch_day = $_POST['sch_day'] ?? '';
+            $sch_periods = $_POST['sch_periods'] ?? [];
+            $sch = buildScheduleString($sch_day, $sch_periods);
 
-            if ($cid && $code && $name) {
-                if(empty($sch)) {
-                    echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 失敗：</strong>修改失敗，請確實選擇上課的星期與節次。</div>";
-                } else {
-                    $upd = $conn->prepare("UPDATE Courses SET course_code=?, course_name=?, teacher_id=?, capacity=?, schedule=?, room=? WHERE course_id=?");
-                    $upd->bind_param("ssiissi", $code, $name, $tid, $cap, $sch, $room, $cid);
-                    if ($upd->execute()) {
-                        echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>課程資料已更新。</div>";
-                    }
+            $error_msg = "";
+
+            if(empty($code) || empty($name) || empty($room) || $tid <= 0) $error_msg = "請填寫所有必填欄位！";
+            else if($cap <= 0) $error_msg = "修課人數上限必須大於 0！";
+            else if(empty($sch_day) || empty($sch_periods)) $error_msg = "請確實勾選上課的星期與節次！";
+            
+            // 課程代碼重複檢查 (排除自己)
+            if(empty($error_msg)) {
+                $chk_code = $conn->query("SELECT course_id FROM Courses WHERE course_code = '{$conn->real_escape_string($code)}' AND course_id != $cid");
+                if($chk_code && $chk_code->num_rows > 0) {
+                    $error_msg = "【代碼重複】課程代碼「{$code}」已被其他課程使用，請更換！";
                 }
+            }
+
+            // 衝堂檢查 (排除自己)
+            if(empty($error_msg)) {
+                $conflict = checkConflict($conn, $sem, $sch_day, $sch_periods, $room, $tid, $cid);
+                if($conflict) $error_msg = $conflict;
+            }
+
+            // 執行結果判定
+            if(empty($error_msg)) {
+                $upd = $conn->prepare("UPDATE Courses SET course_code=?, course_name=?, teacher_id=?, capacity=?, schedule=?, room=? WHERE course_id=?");
+                $upd->bind_param("ssiissi", $code, $name, $tid, $cap, $sch, $room, $cid);
+                if ($upd->execute()) {
+                    echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>課程「{$name}」資料已更新，且通過排課檢查。</div>";
+                }
+            } else {
+                echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 修改失敗：</strong><br>{$error_msg}</div>";
             }
         }
 
-        // 3. 處理刪除課程
+        // --- 處理 3：刪除課程 ---
         if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_course'])) {
             $del_id = intval($_POST['delete_course_id']);
             $conn->query("DELETE FROM Courses WHERE course_id = $del_id");
@@ -84,13 +168,13 @@
 
         echo "<form id='addCourseForm' method='POST' style='display:none; background:#f4f6f9; padding:20px; border-radius:5px; margin-bottom:20px; grid-template-columns: 1fr 1fr; gap:15px;'>";
         echo "<div style='grid-column: span 2;'><h4 style='margin-top:0; color:#28a745;'>📝 新增課程</h4></div>";
-        echo "<div><label>課程代碼：</label><input type='text' name='course_code' required></div>";
+        echo "<div><label>課程代碼：</label><input type='text' name='course_code' placeholder='不可與現存代碼重複' required></div>";
         echo "<div><label>課程名稱：</label><input type='text' name='course_name' required></div>";
         echo "<div><label>授課教師：</label><select name='teacher_id' required><option value=''>請選擇教師...</option>$teacher_options</select></div>";
         echo "<div><label>上課教室：</label><input type='text' name='room' placeholder='如：資工系館 R101' required></div>";
-        echo "<div><label>修課人數上限：</label><input type='number' name='capacity' value='50' required></div>";
+        echo "<div><label>修課人數上限：</label><input type='number' name='capacity' value='50' min='1' required></div>";
         
-        // 排課 UI (移除六日)
+        // 排課 UI
         echo "<div style='grid-column: span 2; background:#fff; padding:15px; border:1px solid #ced4da; border-radius:5px;'>";
         echo "<label style='color:#007bff; font-weight:bold; margin-bottom:10px; display:block;'>📅 課程排程設定：</label>";
         echo "<div style='display:flex; align-items:center; gap:15px;'>";
@@ -123,7 +207,7 @@
 
         while ($c = $courses->fetch_assoc()) {
             echo "<tr style='border-bottom:1px solid #eee;'>";
-            echo "<td style='padding:10px;'>" . htmlspecialchars($c['course_code']) . "</td>";
+            echo "<td style='padding:10px; font-weight:bold;'>" . htmlspecialchars($c['course_code']) . "</td>";
             echo "<td style='padding:10px;'>" . htmlspecialchars($c['course_name']) . "</td>";
             echo "<td style='padding:10px;'>" . htmlspecialchars($c['teacher_name'] ?? '未指派') . "</td>";
             echo "<td style='padding:10px; font-weight:bold; color:#d35400;'>" . htmlspecialchars($c['schedule']) . "</td>";
@@ -186,7 +270,7 @@
                         </div>
                     </div>
                     
-                    <div style="grid-column: span 2;"><label>修課人數上限：</label><input type="number" name="capacity" id="edit_capacity" required></div>
+                    <div style="grid-column: span 2;"><label>修課人數上限：</label><input type="number" name="capacity" id="edit_capacity" min="1" required></div>
                     
                     <div style="grid-column: span 2; text-align:right; margin-top:10px;">
                         <button type="button" class="btn" style="background:#6c757d; margin-right:10px;" onclick="closeEditModal()">取消</button>

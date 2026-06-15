@@ -12,22 +12,33 @@
         $enrollment_status = $status_query->fetch_assoc()['setting_value'] ?? 'open';
         $is_open = ($enrollment_status === 'open');
 
-        // --- 處理送出申請單 (包含後端防呆) ---
+        // --- 處理送出申請單與取消申請 (包含後端防呆) ---
         if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
-            if (!$is_open) {
-                echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 失敗：</strong>目前非加退選期間，無法送出申請。</div>";
-            } else {
-                $action = $_POST['action']; 
-                $course_id = intval($_POST['course_id']);
-                
-                $check_req = $conn->query("SELECT request_id FROM CourseRequests WHERE student_id='$student_id' AND course_id=$course_id AND status='Pending'");
-                if ($check_req->num_rows == 0) {
-                    $ins_req = $conn->prepare("INSERT INTO CourseRequests (student_id, course_id, action) VALUES (?, ?, ?)");
-                    $ins_req->bind_param("sis", $student_id, $course_id, $action);
-                    $ins_req->execute();
-                    echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>申請已送出，請等待系辦審核。</div>";
+            $action = $_POST['action']; 
+            $course_id = intval($_POST['course_id']);
+            
+            // 💡 處理「取消申請」(即使系統關閉，學生也能撤回自己未審核的單)
+            if ($action == 'Cancel') {
+                $del_req = $conn->prepare("DELETE FROM CourseRequests WHERE student_id=? AND course_id=? AND status='Pending'");
+                $del_req->bind_param("si", $student_id, $course_id);
+                if ($del_req->execute() && $del_req->affected_rows > 0) {
+                    echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>已成功撤回(取消)該筆申請。</div>";
+                }
+            } 
+            // 處理「新增/退選申請」
+            else {
+                if (!$is_open) {
+                    echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 失敗：</strong>目前非加退選期間，無法送出新申請。</div>";
                 } else {
-                    echo "<div class='card' style='background:#fff3cd; border-left:4px solid #ffc107;'>您已經送出過申請，目前正在審核中。</div>";
+                    $check_req = $conn->query("SELECT request_id FROM CourseRequests WHERE student_id='$student_id' AND course_id=$course_id AND status='Pending'");
+                    if ($check_req->num_rows == 0) {
+                        $ins_req = $conn->prepare("INSERT INTO CourseRequests (student_id, course_id, action) VALUES (?, ?, ?)");
+                        $ins_req->bind_param("sis", $student_id, $course_id, $action);
+                        $ins_req->execute();
+                        echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>申請已送出，請等待系辦審核。</div>";
+                    } else {
+                        echo "<div class='card' style='background:#fff3cd; border-left:4px solid #ffc107;'>您已經送出過申請，目前正在審核中。</div>";
+                    }
                 }
             }
         }
@@ -61,16 +72,14 @@
         }
         
         // ==========================================
-        // 📊 繪製圖形化課表區塊 (改成 5 天)
+        // 📊 繪製圖形化課表區塊 (5 天)
         // ==========================================
-        // 初始化 5天 x 14節 空陣列
         $timetable = [];
         for ($d = 1; $d <= 5; $d++) {
             for ($p = 1; $p <= 14; $p++) {
                 $timetable[$d][$p] = null;
             }
         }
-        // 容錯機制：保留六日的 map 對應，但畫面不渲染，避免報錯
         $day_map = ['一'=>1, '二'=>2, '三'=>3, '四'=>4, '五'=>5, '六'=>6, '日'=>7];
 
         // 1. 填入已選上的課程 (綠色)
@@ -89,7 +98,7 @@
             }
         }
 
-        // 2. 填入預選中的課程 (藍色，不覆蓋綠色)
+        // 2. 填入預選中的課程 (藍色)
         foreach ($pending_add_data as $course) {
             $sch = trim($course['schedule']);
             if (empty($sch)) continue;
@@ -114,7 +123,6 @@
         echo "<table style='width:100%; border-collapse:collapse; text-align:center; table-layout:fixed; font-size:0.95em; background:#fff;'>";
         echo "<tr style='background:#e9ecef; border-bottom:2px solid #ccc;'>";
         echo "<th style='border:1px solid #ddd; padding:10px; width:50px;'>節次</th>";
-        // 移除六日
         $days = ['一', '二', '三', '四', '五'];
         foreach ($days as $day) echo "<th style='border:1px solid #ddd; padding:10px;'>星期{$day}</th>";
         echo "</tr>";
@@ -122,7 +130,7 @@
         for ($p = 1; $p <= 14; $p++) {
             echo "<tr>";
             echo "<td style='border:1px solid #ddd; font-weight:bold; background:#f4f6f9; color:#555;'>{$p}</td>";
-            for ($d = 1; $d <= 5; $d++) { // 只跑到 5
+            for ($d = 1; $d <= 5; $d++) { 
                 $cell = $timetable[$d][$p];
                 if ($cell) {
                     $bg = ($cell['type'] == 'enrolled') ? '#d4edda' : '#dbeafe';
@@ -143,7 +151,7 @@
         if ($is_open) {
             echo "<p style='color:#007bff; font-weight:bold; font-size:1.1em;'>當前學期：113-1 ｜ 🟢 加退選開放申請中</p>";
         } else {
-            echo "<p style='color:#dc3545; font-weight:bold; font-size:1.1em;'>當前學期：113-1 ｜ 🔴 加退選目前已關閉，暫停受理申請</p>";
+            echo "<p style='color:#dc3545; font-weight:bold; font-size:1.1em;'>當前學期：113-1 ｜ 🔴 加退選目前已關閉，暫停受理新申請</p>";
         }
 
         echo "<table style='width:100%; text-align:left; border-collapse: collapse; margin-top:10px;'>";
@@ -160,14 +168,23 @@
             echo "<td style='padding:10px;'>" . htmlspecialchars($course['course_name']) . "</td>";
             echo "<td style='padding:10px;'>" . htmlspecialchars($course['teacher_name'] ?? '未指派') . "</td>";
             echo "<td style='padding:10px;'><span style='color:#d35400; font-weight:bold;'>🕒 " . htmlspecialchars($course['schedule']) . "</span><br><span style='color:#666; font-size:0.9em;'>📍 " . htmlspecialchars($course['room'] ?? '未定') . "</span></td>";
-            echo "<td style='padding:10px;'><a href='index.php?page=syllabus_detail&id={$course['course_id']}' class='btn' style='background:#17a2b8; padding:5px 10px; font-size:0.9em;'>📄 查看</a></td>";
+            echo "<td style='padding:10px;'><a href='index.php?page=syllabus_detail&id={$course['course_id']}' class='btn' style='background:#17a2b8; padding:5px 10px; font-size:0.9em; text-decoration:none; color:#fff;'>📄 查看</a></td>";
             echo "<td style='padding:10px;" . ($is_full ? "color:red;" : "color:green;") . "'>" . $course['enrolled'] . " / " . $course['capacity'] . ($is_full ? " (滿)" : "") . "</td>";
             
+            // 操作按鈕的渲染邏輯 (💡 加入取消按鈕)
             echo "<td style='padding:10px;'>";
-            if ($pending_action == 'Add') {
-                echo "<button class='btn' style='background:#6c757d; cursor:not-allowed;' disabled>⏳ 加選審核中</button>";
-            } else if ($pending_action == 'Drop') {
-                echo "<button class='btn' style='background:#6c757d; cursor:not-allowed;' disabled>⏳ 退選審核中</button>";
+            
+            if ($pending_action == 'Add' || $pending_action == 'Drop') {
+                $status_txt = ($pending_action == 'Add') ? "⏳ 加選審核中" : "⏳ 退選審核中";
+                // 使用 Flex 排版讓「審核狀態」與「取消按鈕」並排顯示
+                echo "<div style='display:flex; gap:5px; align-items:center;'>";
+                echo "<span style='background:#6c757d; color:#fff; padding:5px 10px; border-radius:4px; font-size:0.9em; cursor:not-allowed;'>{$status_txt}</span>";
+                echo "<form method='POST' style='margin:0;'>
+                        <input type='hidden' name='action' value='Cancel'>
+                        <input type='hidden' name='course_id' value='{$course['course_id']}'>
+                        <button type='submit' class='btn' style='background:#dc3545; padding:5px 8px; font-size:0.9em;' onclick='return confirm(\"確定要撤回此申請嗎？\");'>✖ 取消</button>
+                      </form>";
+                echo "</div>";
             } else if (!$is_open) {
                 echo "<button class='btn' style='background:#ccc; color:#666; cursor:not-allowed; border:1px solid #aaa;' disabled>⛔ 已關閉</button>";
             } else if ($is_enrolled) {
