@@ -98,45 +98,60 @@ if (!$teacher) {
         <div>
             <?php
             $courses_res = $conn->query("SELECT * FROM Courses WHERE teacher_id = $teacher_id ORDER BY course_code");
-            $schedule_map = []; 
             $course_list = [];
+            
+            // 🌟 建立標準的 5 天 14 節空課表陣列
+            $timetable = [];
+            for ($d = 1; $d <= 5; $d++) {
+                for ($p = 1; $p <= 14; $p++) {
+                    $timetable[$d][$p] = null;
+                }
+            }
+            // 🌟 建立文字與數字的映射對應表
+            $day_map = ['一'=>1, '二'=>2, '三'=>3, '四'=>4, '五'=>5];
             
             if ($courses_res && $courses_res->num_rows > 0) {
                 while($c = $courses_res->fetch_assoc()) {
                     $course_list[] = $c;
                     $sch = trim($c['schedule']);
                     if (!empty($sch) && strpos($sch, ' ') !== false) {
-                        list($day, $periods) = explode(' ', $sch);
-                        $p_arr = explode(',', $periods);
-                        foreach($p_arr as $p) {
-                            $p = trim($p);
-                            if ($p !== '') {
-                                $schedule_map[$p][$day] = [
-                                    'name' => $c['course_name'],
-                                    'room' => $c['room']
-                                ];
+                        $parts = explode(' ', $sch);
+                        if (count($parts) >= 2) {
+                            $d_num = $day_map[$parts[0]] ?? 0;
+                            $periods = explode(',', $parts[1]);
+                            foreach($periods as $p) {
+                                $p = trim($p);
+                                // 確實投射進陣列中
+                                if ($d_num && $d_num <= 5 && is_numeric($p) && $p >= 1 && $p <= 14) {
+                                    $timetable[$d_num][$p] = [
+                                        'name' => $c['course_name'],
+                                        'room' => $c['room']
+                                    ];
+                                }
                             }
                         }
                     }
                 }
                 
                 // 滿版課表網格
-                $days = ['星期一', '星期二', '星期三', '星期四', '星期五'];
+                $days_label = [1=>'星期一', 2=>'星期二', 3=>'星期三', 4=>'星期四', 5=>'星期五'];
                 echo "<div style='overflow-x: auto; margin-bottom: 40px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);'>";
                 echo "<table style='width: 100%; min-width: 600px; border-collapse: collapse; text-align: center; font-size: 0.95em;'>";
                 echo "<tr style='background: #343a40; color: #fff;'>";
                 echo "<th style='padding: 12px; border: 1px solid #454d55; width: 60px;'>節次</th>";
-                foreach ($days as $d) echo "<th style='padding: 12px; border: 1px solid #454d55; width: 18%;'>$d</th>";
+                foreach ($days_label as $d_label) echo "<th style='padding: 12px; border: 1px solid #454d55; width: 18%;'>$d_label</th>";
                 echo "</tr>";
                 
                 for ($i = 1; $i <= 14; $i++) {
                     $bg = ($i % 2 == 0) ? '#f8f9fa' : '#ffffff';
                     echo "<tr style='background: {$bg};'>";
                     echo "<td style='padding: 10px; border: 1px solid #dee2e6; font-weight: bold; color: #495057;'>第 {$i} 節</td>";
-                    foreach ($days as $d) {
+                    
+                    // 🌟 正確使用 1~5 的數字去撈取陣列內容
+                    for ($d = 1; $d <= 5; $d++) {
                         echo "<td style='padding: 10px; border: 1px solid #dee2e6; vertical-align: top;'>";
-                        if (isset($schedule_map[$i][$d])) {
-                            $cell = $schedule_map[$i][$d];
+                        $cell = $timetable[$d][$i];
+                        if ($cell) {
                             echo "<div style='background: #e8f4fd; border-left: 4px solid #28a745; padding: 8px; border-radius: 4px; text-align: left; font-size: 0.95em; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>";
                             echo "<strong style='color: #1976d2; display: block; margin-bottom: 4px;'>" . htmlspecialchars($cell['name']) . "</strong>";
                             echo "<span style='color: #666; font-size: 0.85em;'>📍 " . htmlspecialchars($cell['room'] ?? '未定') . "</span>";
