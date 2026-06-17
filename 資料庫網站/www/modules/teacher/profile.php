@@ -1,5 +1,4 @@
-﻿<!-- 引入外部開源剪裁工具 Cropper.js (CDN) -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
+﻿<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
 
 <div class="card">
@@ -20,6 +19,7 @@
         // --- 處理 1：基本資料與頭像更新 ---
         if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             $phone = trim($_POST['phone'] ?? '');
+            $extension = trim($_POST['extension'] ?? '');
             $email = trim($_POST['email'] ?? '');
             $office_hours = trim($_POST['office_hours'] ?? '');
             $lab_name = trim($_POST['lab_name'] ?? '');
@@ -29,43 +29,59 @@
             
             $avatar_path = $p['avatar_path'];
             $upload_msg = "";
+            $error_msg = "";
 
-            // 處理前端剪裁完傳回的 Base64 圖片資料
-            if (!empty($_POST['cropped_avatar'])) {
-                $base64_data = $_POST['cropped_avatar'];
-                if (preg_match('/^data:image\/(\w+);base64,/', $base64_data, $type)) {
-                    $image_type = strtolower($type[1]);
-                    $clean_data = substr($base64_data, strpos($base64_data, ',') + 1);
-                    $decoded_image = base64_decode($clean_data);
+            // ✨ 新增：電話與分機格式驗證防呆
+            // 電話：支援 09xx-xxxxxx 或市話 02-xxxxxxxx
+            if ($phone != '' && !preg_match('/^(09\d{2}-?\d{6}|0\d{1,2}-?\d{6,8})$/', $phone)) {
+                $error_msg .= "⚠️ 聯絡電話格式不正確 (請使用如 0912-345678 或 02-23456789)。<br>";
+            }
+            // 分機：限制必定為 # 開頭加 4 碼數字
+            if ($extension != '' && !preg_match('/^#[0-9]{4}$/', $extension)) {
+                $error_msg .= "⚠️ 分機號碼格式不正確 (必須為 # 加上 4 碼數字，如 #1234)。<br>";
+            }
 
-                    if ($decoded_image !== false) {
-                        $upload_dir = 'uploads/avatars/';
-                        if (!is_dir($upload_dir)) {
-                            @mkdir($upload_dir, 0777, true);
+            if ($error_msg != "") {
+                echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545; line-height:1.6;'>{$error_msg}</div>";
+            } else {
+                // 處理前端剪裁完傳回的 Base64 圖片資料
+                if (!empty($_POST['cropped_avatar'])) {
+                    $base64_data = $_POST['cropped_avatar'];
+                    if (preg_match('/^data:image\/(\w+);base64,/', $base64_data, $type)) {
+                        $image_type = strtolower($type[1]);
+                        $clean_data = substr($base64_data, strpos($base64_data, ',') + 1);
+                        $decoded_image = base64_decode($clean_data);
+
+                        if ($decoded_image !== false) {
+                            $upload_dir = 'uploads/avatars/';
+                            if (!is_dir($upload_dir)) { @mkdir($upload_dir, 0777, true); }
+                            if (!empty($p['avatar_path']) && file_exists($p['avatar_path'])) { @unlink($p['avatar_path']); }
+                            
+                            $new_filename = uniqid('avatar_') . '.' . $image_type;
+                            $avatar_path = $upload_dir . $new_filename;
+                            file_put_contents($avatar_path, $decoded_image);
+                            $upload_msg = "（頭像剪裁設定成功！）";
                         }
-                        
-                        if (!empty($p['avatar_path']) && file_exists($p['avatar_path'])) {
-                            @unlink($p['avatar_path']);
-                        }
-
-                        $new_filename = uniqid('avatar_') . '.' . $image_type;
-                        $avatar_path = $upload_dir . $new_filename;
-                        
-                        file_put_contents($avatar_path, $decoded_image);
-                        $upload_msg = "（頭像剪裁設定成功！）";
                     }
                 }
+                
+                // 動態判斷系統是否已建立 extension 欄位，避免剛更新時報錯
+                $check_col = $conn->query("SHOW COLUMNS FROM Teachers LIKE 'extension'");
+                if ($check_col && $check_col->num_rows > 0) {
+                    $update = $conn->prepare("UPDATE Teachers SET phone=?, extension=?, email=?, office_hours=?, lab_name=?, lab_info=?, teaching_experience=?, external_experience=?, avatar_path=? WHERE teacher_id=?");
+                    $update->bind_param("sssssssssi", $phone, $extension, $email, $office_hours, $lab_name, $lab_info, $teaching_exp, $external_exp, $avatar_path, $teacher_id);
+                } else {
+                    $update = $conn->prepare("UPDATE Teachers SET phone=?, email=?, office_hours=?, lab_name=?, lab_info=?, teaching_experience=?, external_experience=?, avatar_path=? WHERE teacher_id=?");
+                    $update->bind_param("ssssssssi", $phone, $email, $office_hours, $lab_name, $lab_info, $teaching_exp, $external_exp, $avatar_path, $teacher_id);
+                }
+                
+                if ($update->execute()) {
+                    @$conn->query("INSERT INTO TeacherLogs (teacher_id, action_type, description) VALUES ($teacher_id, '基本資料更新', '更新了聯絡資訊與經歷。')");
+                    echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>個人資料已更新完成！ {$upload_msg}</div>";
+                }
+                $profile->execute();
+                $p = $profile->get_result()->fetch_assoc();
             }
-            
-            $update = $conn->prepare("UPDATE Teachers SET phone=?, email=?, office_hours=?, lab_name=?, lab_info=?, teaching_experience=?, external_experience=?, avatar_path=? WHERE teacher_id=?");
-            $update->bind_param("ssssssssi", $phone, $email, $office_hours, $lab_name, $lab_info, $teaching_exp, $external_exp, $avatar_path, $teacher_id);
-            
-            if ($update->execute()) {
-                @$conn->query("INSERT INTO TeacherLogs (teacher_id, action_type, description) VALUES ($teacher_id, '基本資料更新', '更新了聯絡資訊並重新剪裁了個人頭像。')");
-                echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>個人資料與自訂頭像已更新更新完成！ {$upload_msg}</div>";
-            }
-            $profile->execute();
-            $p = $profile->get_result()->fetch_assoc();
         }
 
         // --- 處理 2：新增/刪除學術榮譽 ---
@@ -108,19 +124,14 @@
         echo "<h3 style='color:#007bff;'>👤 基本資料與經歷</h3>";
         echo "<form id='profileForm' method='POST' style='background:#f4f6f9; padding:20px; border-radius:5px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px;'>";
         
-        // 前端頭像調整區 UI 
         echo "<div style='grid-column: span 2; background: #fff; padding: 20px; border-radius: 6px; border: 1px dashed #007bff;'>";
         echo "  <div style='display: flex; align-items: center; gap: 30px; flex-wrap: wrap;'>";
-        
-        // 左側顯示當前頭像或動態文字徽章
         if (!empty($p['avatar_path']) && file_exists($p['avatar_path'])) {
             echo "      <img src='{$p['avatar_path']}' style='width: 90px; height: 90px; border-radius: 50%; object-fit: cover; border: 2px solid #007bff;'>";
         } else {
-            // ⚠️ 關鍵修復點：加入了 function_exists 防呆機制
             $f_char = function_exists('mb_substr') ? mb_substr($p['name'], 0, 1, 'UTF-8') : '👤';
             echo "      <div style='width: 90px; height: 90px; border-radius: 50%; background: linear-gradient(135deg, #17a2b8, #007bff); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; border: 2px solid #007bff;'>{$f_char}</div>";
         }
-        
         echo "      <div style='flex: 1; min-width: 250px;'>";
         echo "          <label style='font-weight: bold; display: block; margin-bottom: 5px;'>📷 上傳並調整個人頭像：</label>";
         echo "          <input type='file' id='avatarInput' accept='image/jpeg, image/png, image/gif'>";
@@ -128,7 +139,6 @@
         echo "      </div>";
         echo "  </div>";
         
-        // 隱藏的工作畫布與欄位（用來裝剪裁後的成果）
         echo "  <div id='cropperWrapper' style='display: none; margin-top: 20px; border-top: 1px dashed #ddd; padding-top: 15px;'>";
         echo "      <p style='color: #d35400; font-weight: bold; font-size: 0.9em; margin-bottom: 10px;'>🖱️ 調整教學：滑鼠左鍵拖曳可移動位置 ｜ 滾輪或雙指滑動可縮放大小</p>";
         echo "      <div style='max-width: 400px; max-height: 300px; background: #f0f0f0; overflow: hidden;'>";
@@ -140,11 +150,16 @@
 
         echo "<div><label>姓名：</label><div style='padding:8px; background:#e9ecef; border-radius:4px; color:#495057; border:1px solid #ced4da;'>" . htmlspecialchars($p['name'] ?? '') . " <span style='font-size:0.8em; color:#999;'>(修改請洽系辦)</span></div></div>";
         echo "<div><label>職稱：</label><div style='padding:8px; background:#e9ecef; border-radius:4px; color:#495057; border:1px solid #ced4da;'>" . htmlspecialchars($p['title'] ?? '') . " <span style='font-size:0.8em; color:#999;'>(修改請洽系辦)</span></div></div>";
-        echo "<div><label>聯絡電話：</label><input type='text' name='phone' value='" . htmlspecialchars($p['phone'] ?? '') . "'></div>";
-        echo "<div><label>電子信箱：</label><input type='email' name='email' value='" . htmlspecialchars($p['email'] ?? '') . "'></div>";
-        echo "<div style='grid-column: span 2;'><label>請益時間 (Office Hours)：</label><input type='text' name='office_hours' value='" . htmlspecialchars($p['office_hours'] ?? '') . "'></div>";
         
-        echo "<div><label>實驗室名稱：</label><input type='text' name='lab_name' value='" . htmlspecialchars($p['lab_name'] ?? '') . "'></div>";
+        // ✨ 新增欄位區塊：將聯絡電話、分機號碼對稱排版
+        echo "<div><label>聯絡電話：</label><input type='text' name='phone' value='" . htmlspecialchars($p['phone'] ?? '') . "' placeholder='例: 0912-345678 或 02-23456789'></div>";
+        $ext_val = isset($p['extension']) ? htmlspecialchars($p['extension']) : '';
+        echo "<div><label>分機號碼：</label><input type='text' name='extension' value='{$ext_val}' placeholder='例: #1234'></div>";
+        
+        echo "<div><label>電子信箱：</label><input type='email' name='email' value='" . htmlspecialchars($p['email'] ?? '') . "'></div>";
+        echo "<div><label>請益時間 (Office Hours)：</label><input type='text' name='office_hours' value='" . htmlspecialchars($p['office_hours'] ?? '') . "'></div>";
+        
+        echo "<div style='grid-column: span 2;'><label>實驗室名稱：</label><input type='text' name='lab_name' value='" . htmlspecialchars($p['lab_name'] ?? '') . "'></div>";
         echo "<div style='grid-column: span 2;'><label>實驗室簡介與研究方向：</label><textarea name='lab_info' rows='2'>" . htmlspecialchars($p['lab_info'] ?? '') . "</textarea></div>";
         echo "<div style='grid-column: span 2;'><label>🏫 校內教學經歷：</label><textarea name='teaching_experience' rows='3'>" . htmlspecialchars($p['teaching_experience'] ?? '') . "</textarea></div>";
         echo "<div style='grid-column: span 2;'><label>🏢 校外經歷：</label><textarea name='external_experience' rows='3'>" . htmlspecialchars($p['external_experience'] ?? '') . "</textarea></div>";
@@ -194,7 +209,6 @@
     ?>
 </div>
 
-<!-- ✨ 前端即時剪裁控管腳本 -->
 <script>
 let cropperContext = null;
 const avatarInput = document.getElementById('avatarInput');
@@ -202,42 +216,26 @@ const imageWorkspace = document.getElementById('imageWorkspace');
 const cropperWrapper = document.getElementById('cropperWrapper');
 const profileForm = document.getElementById('profileForm');
 
-// 監聽老師選擇圖檔事件
 if(avatarInput) {
     avatarInput.addEventListener('change', function(e) {
         const files = e.target.files;
         if (files && files.length > 0) {
             const file = files[0];
             const reader = new FileReader();
-            
             reader.onload = function(event) {
                 imageWorkspace.src = event.target.result;
                 cropperWrapper.style.display = 'block';
-                
-                if (cropperContext) {
-                    cropperContext.destroy();
-                }
-                
-                cropperContext = new Cropper(imageWorkspace, {
-                    aspectRatio: 1,      
-                    viewMode: 1,         
-                    background: false,   
-                    autoCropArea: 0.9    
-                });
+                if (cropperContext) { cropperContext.destroy(); }
+                cropperContext = new Cropper(imageWorkspace, { aspectRatio: 1, viewMode: 1, background: false, autoCropArea: 0.9 });
             };
             reader.readAsDataURL(file);
         }
     });
 }
-
-// 在按下提交表單前，把處理好的圖片轉為 Base64 塞入隱藏欄位
 if(profileForm) {
     profileForm.addEventListener('submit', function(e) {
         if (cropperContext) {
-            const canvas = cropperContext.getCroppedCanvas({
-                width: 300,
-                height: 300
-            });
+            const canvas = cropperContext.getCroppedCanvas({ width: 300, height: 300 });
             document.getElementById('croppedAvatarData').value = canvas.toDataURL('image/jpeg', 0.85);
         }
     });

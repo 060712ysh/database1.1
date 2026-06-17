@@ -1,25 +1,20 @@
 ﻿﻿<?php
-// 🌟 核心防護：開啟輸出緩衝，徹底解決登入/登出 header() 跳轉時的白畫面錯誤
+// 🌟 核心防護：開啟輸出緩衝
 ob_start(); 
 session_start();
 require_once 'db_connect.php';
 
-// 取得當前身分與頁面
 $role = isset($_SESSION['role']) ? $_SESSION['role'] : 'Guest';
 $page = isset($_GET['page']) ? $_GET['page'] : 'home';
-
-// 判斷是否為後台管理模式
 $is_backend = ($role == 'Admin' || $role == 'Teacher');
 
-// 路由邏輯
 $module_path = '';
 if ($page == 'login') {
     $module_path = 'login.php';
 } else {
     $page_name = basename($page); 
-    // 定義各身分允許存取的檔案白名單
     $public_pages = ['home', 'faculty', 'labs', 'teacher_detail', 'downloads', 'syllabus_detail', 'change_password'];
-    $admin_pages = ['manage_accounts', 'manage_courses', 'manage_enrollments', 'review_reservations', 'review_messages', 'manage_files', 'view_database', 'admin_logs'];
+    $admin_pages = ['manage_accounts', 'manage_courses', 'manage_rooms', 'manage_enrollments', 'review_reservations', 'review_messages', 'manage_files', 'view_database', 'admin_logs'];
     $teacher_pages = ['profile', 'syllabus', 'grading'];
     $student_pages = ['course_selection', 'my_schedule', 'reservation', 'message'];
 
@@ -42,43 +37,54 @@ if ($page == 'login') {
     <link rel="stylesheet" href="assets/css/style.css">
     <style>
         /* =========================================
-           ✨ 前台專屬樣式 (上方導覽列佈局)
+           ✨ 全域去除干擾 Margin
            ========================================= */
-        body { margin: 0; padding: 0; background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; min-height: 100vh; }
+        html, body { margin: 0 !important; padding: 0 !important; background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; min-height: 100vh; }
+
+        /* =========================================
+           ✨ 後台專屬樣式 (強制解決標題列對齊問題)
+           ========================================= */
+        .backend-wrapper { display: flex; min-height: 100vh; width: 100%; margin: 0; padding: 0; }
+        
+        .backend-sidebar { width: 250px; background: #343a40; color: #fff; flex-shrink: 0; display: flex; flex-direction: column; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 10; margin: 0; }
+        
+        /* 鎖定左側黑框標題 */
+        .backend-sidebar h2 { height: 70px !important; margin: 0 !important; padding: 0 !important; background: #212529; color: #fff; font-size: 1.3em; letter-spacing: 2px; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; }
+        
+        .backend-sidebar a { display: block; padding: 15px 25px; color: #c2c7d0; text-decoration: none; font-size: 1.05em; border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s, color 0.2s; }
+        .backend-sidebar a:hover { background: #495057; color: #fff; border-left: 4px solid #17a2b8; padding-left: 21px; }
+        
+        .backend-main { flex: 1; display: flex; flex-direction: column; background: #f8f9fa; overflow-x: hidden; min-width: 0; margin: 0; padding: 0; }
+        
+        /* 鎖定右側藍框 Header，利用 overflow: hidden 阻絕 Margin Collapse */
+        .backend-main > header, .backend-main .header { 
+            height: 70px !important; 
+            margin: 0 !important; 
+            padding: 0 20px !important; 
+            box-sizing: border-box !important; 
+            display: flex !important; 
+            align-items: center !important; 
+            justify-content: space-between !important; 
+            overflow: hidden !important; 
+            border-radius: 0 !important; 
+        }
+        
+        /* 消除 header 內所有元素的預設 margin 造成的推擠 */
+        .backend-main > header *, .backend-main .header * { margin-top: 0 !important; margin-bottom: 0 !important; }
+
+        /* =========================================
+           ✨ 前台專屬樣式
+           ========================================= */
         .frontend-nav { background: #1976d2; box-shadow: 0 2px 10px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 1000; }
-        
-        /* 將寬度擴增到 1400px 以容納學生選單 */
         .frontend-nav-container { max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; height: 70px; gap: 20px; }
-        
-        /* 強制文字不換行、不壓縮 */
         .frontend-logo { color: #fff; font-size: 1.5em; font-weight: bold; text-decoration: none; display: flex; align-items: center; gap: 10px; text-shadow: 1px 1px 2px rgba(0,0,0,0.2); white-space: nowrap; flex-shrink: 0; }
-        
-        /* 如果螢幕太小，允許選單可以左右滑動，但不擠壓文字 */
         .frontend-menu { display: flex; gap: 5px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
         .frontend-menu::-webkit-scrollbar { display: none; }
         .frontend-menu a { color: rgba(255,255,255,0.85); text-decoration: none; padding: 8px 14px; border-radius: 20px; font-weight: 500; transition: all 0.2s ease; white-space: nowrap; flex-shrink: 0; font-size: 0.95em; }
         .frontend-menu a:hover, .frontend-menu a.active { background: rgba(255,255,255,0.2); color: #fff; }
-        
-        /* 確保右側登入/身分區塊不折行 */
         .frontend-user-panel { display: flex; align-items: center; gap: 15px; white-space: nowrap; flex-shrink: 0; }
-        
         .frontend-content { max-width: 1400px; width: 100%; margin: 40px auto; padding: 0 20px; flex: 1; box-sizing: border-box; }
         .frontend-footer { background: #2c3e50; color: #a0aec0; text-align: center; padding: 20px 0; font-size: 0.9em; margin-top: auto; }
-
-        /* =========================================
-           ✨ 後台專屬樣式 (側邊欄佈局)
-           ========================================= */
-        .backend-wrapper { display: flex; min-height: 100vh; width: 100%; }
-        .backend-sidebar { width: 250px; background: #343a40; color: #fff; flex-shrink: 0; display: flex; flex-direction: column; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 10; }
-        
-        /* 重塑側邊欄按鈕的「格子」外觀 */
-        .backend-sidebar h2 { font-size: 1.3em; padding: 20px; margin: 0; background: #212529; color: #fff; text-align: center; letter-spacing: 2px; }
-        .backend-sidebar a { display: block; padding: 15px 25px; color: #c2c7d0; text-decoration: none; font-size: 1.05em; border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s, color 0.2s; }
-        .backend-sidebar a:hover { background: #495057; color: #fff; border-left: 4px solid #17a2b8; padding-left: 21px; }
-        .backend-sidebar hr { border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 0; }
-        
-        /* 避免 main-content 內容過寬撐破版面 */
-        .backend-main { flex: 1; display: flex; flex-direction: column; background: #f8f9fa; overflow-x: hidden; min-width: 0; }
     </style>
 </head>
 <body>
@@ -134,7 +140,6 @@ if ($page == 'login') {
                 <div class="frontend-user-panel">
                     <?php if ($role == 'Student'): ?>
                         <?php
-                        // 動態撈取學生真實姓名
                         $uid = intval($_SESSION['user_id']);
                         $s_name = $_SESSION['username'] ?? '同學';
                         $q = $conn->query("SELECT name FROM Students WHERE user_id = $uid");
@@ -172,6 +177,5 @@ if ($page == 'login') {
 </body>
 </html>
 <?php 
-// 🌟 輸出緩衝結束並送出內容
 ob_end_flush(); 
 ?>

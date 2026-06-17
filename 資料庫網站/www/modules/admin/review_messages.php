@@ -1,4 +1,4 @@
-﻿﻿<div class="card">
+﻿﻿﻿﻿<div class="card">
     <h2>💬 留言回復</h2>
     
     <?php

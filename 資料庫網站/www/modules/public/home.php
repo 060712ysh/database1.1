@@ -2,6 +2,7 @@
 // 取得當前角色
 $current_role = isset($_SESSION['role']) ? $_SESSION['role'] : 'Guest';
 $is_admin = ($current_role == 'Admin');
+$is_teacher = ($current_role == 'Teacher');
 $is_frontend_user = ($current_role == 'Student' || $current_role == 'Guest'); 
 
 // --- 核心防呆：全自動排序正規化函式 ---
@@ -182,17 +183,14 @@ $total_news = count($news_array);
         echo "<div style='background:#f8f9fa; padding:40px; text-align:center; color:#999; border-radius:8px; border:1px dashed #ccc;'>目前尚無最新消息發布。</div>";
     } else {
         
-        // 🌟 模式 A：前台訪客與學生 -> 顯示精美輪播跑馬燈
-        if ($is_frontend_user) {
+        // ✨ 修改點：將老師 ($is_teacher) 也加入顯示跑馬燈的條件中！
+        if ($is_frontend_user || $is_teacher) {
             echo "<h3 style='color: #2c3e50; margin-bottom: 20px; font-size:1.8em; text-align:center;'>📢 <span style='border-bottom: 3px solid #1976d2; padding-bottom:5px;'>系所最新消息</span></h3>";
-            
-            // ✨ 隔離 PHP 與前端程式碼，避免變數被誤認
             ?>
             <style>
                 .news-carousel { position: relative; width: 100%; overflow: hidden; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.08); background: #fff; border: 1px solid #eaeaea; }
                 .carousel-inner { display: flex; transition: transform 0.6s cubic-bezier(0.25, 0.8, 0.25, 1); }
                 .carousel-item { min-width: 100%; padding: 40px 60px 60px 60px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; background: linear-gradient(135deg, #ffffff 0%, #f4f9ff 100%); }
-                /* 加深背景與箭頭大小，確保容易點擊 */
                 .carousel-control { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.4); color: #fff; border: none; width: 45px; height: 45px; border-radius: 50%; cursor: pointer; font-size: 1.5em; display: flex; align-items: center; justify-content: center; transition: 0.3s; z-index: 999; pointer-events: auto; }
                 .carousel-control:hover { background: #1976d2; }
                 .carousel-control.prev { left: 15px; }
@@ -208,7 +206,6 @@ $total_news = count($news_array);
             <div class='news-carousel' id='newsCarousel'>
                 <div class='carousel-inner' id='carouselInner'>
                 <?php
-                // 產生輪播圖內容
                 foreach ($news_array as $news) {
                     $date = date('Y-m-d', strtotime($news['created_at']));
                     echo "<div class='carousel-item'>";
@@ -231,7 +228,6 @@ $total_news = count($news_array);
                 </div>
 
                 <?php
-                // 產生控制按鈕
                 $slide_count = count($news_array);
                 if ($slide_count > 1) {
                     echo "<button type='button' class='carousel-control prev' id='btnPrev'>❮</button>";
@@ -246,7 +242,6 @@ $total_news = count($news_array);
             </div>
 
             <script>
-            // 獨立作用域，確保 JS 語法不被 PHP 干擾
             (function() {
                 const inner = document.getElementById('carouselInner');
                 if (!inner) return;
@@ -267,7 +262,6 @@ $total_news = count($news_array);
                     else if (index < 0) currentIndex = totalSlides - 1;
                     else currentIndex = index;
 
-                    // 這裡的 JS 變數不會再被破壞，可以順利執行位移了！
                     inner.style.transform = `translateX(-${currentIndex * 100}%)`;
                     
                     dots.forEach(dot => dot.classList.remove('active'));
@@ -319,8 +313,8 @@ $total_news = count($news_array);
             </script>
             <?php
         } 
-        // 🌟 模式 B：後台管理員與教師 -> 維持原版列表
-        else {
+        // 🌟 模式 B：後台管理員 -> 維持原版列表供修改與刪除
+        else if ($is_admin) {
             echo "<h3 style='color: #2c3e50; border-bottom: 2px solid #343a40; padding-bottom: 10px;'>📰 系所最新消息管理</h3>";
             echo "<div style='display:flex; flex-direction:column; gap:20px; margin-top:20px;'>";
             

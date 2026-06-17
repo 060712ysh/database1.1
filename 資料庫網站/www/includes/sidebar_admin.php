@@ -1,5 +1,6 @@
 ﻿<a href="index.php?page=home">🏠 首頁</a>
 <a href="index.php?page=manage_accounts">👥 帳號管理</a>
+<a href="index.php?page=manage_rooms">🏫 教室空間管理</a>
 <a href="index.php?page=manage_courses">📚 開課管理</a>
 <a href="index.php?page=review_reservations">🏢 預約審核</a>
 <a href="index.php?page=review_messages">💬 留言回復</a>

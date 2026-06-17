@@ -19,6 +19,7 @@ if (!$teacher) {
     <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #1976d2; padding-bottom: 15px; margin-bottom: 20px;">
         <div style="display: flex; align-items: center; gap: 20px;">
             <?php
+            // 唯一的大頭照渲染區塊
             $avatar = (!empty($teacher['avatar_path']) && file_exists($teacher['avatar_path'])) ? $teacher['avatar_path'] : '';
             if ($avatar) {
                 echo "<img src='{$avatar}' style='width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 2px solid #1976d2;'>";
@@ -29,7 +30,12 @@ if (!$teacher) {
             ?>
             <div>
                 <h2 style="margin: 0; color: #2c3e50; font-size: 2em;"><?php echo htmlspecialchars($teacher['name']); ?> <span style="font-size: 0.6em; color: #666; font-weight: normal;"><?php echo htmlspecialchars($teacher['title']); ?></span></h2>
-                <p style="margin: 5px 0 0 0; color: #555;">📞 分機: <?php echo htmlspecialchars($teacher['phone'] ?? '未提供'); ?> | ✉️ 信箱: <?php echo htmlspecialchars($teacher['email'] ?? '未提供'); ?></p>
+                <?php 
+                // 智慧拼接電話與分機
+                $phone_disp = !empty($teacher['phone']) ? htmlspecialchars($teacher['phone']) : '未提供';
+                $ext_disp = !empty($teacher['extension']) ? " 分機 " . htmlspecialchars($teacher['extension']) : '';
+                ?>
+                <p style="margin: 5px 0 0 0; color: #555;">📞 電話: <?php echo $phone_disp . $ext_disp; ?> | ✉️ 信箱: <?php echo htmlspecialchars($teacher['email'] ?? '未提供'); ?></p>
             </div>
         </div>
         <a href="index.php?page=faculty" class="btn" style="background: #6c757d; padding: 8px 20px; border-radius: 20px; text-decoration: none;">🔙 返回師資</a>
@@ -47,8 +53,32 @@ if (!$teacher) {
     </div>
 
     <?php if ($view == 'profile'): ?>
+        <style>
+            details.custom-accordion { margin-bottom: 10px; }
+            details.custom-accordion summary {
+                display: flex; align-items: center; cursor: pointer;
+                padding: 8px 12px; background: #f8f9fa; border-radius: 6px;
+                font-weight: bold; color: #333; font-size: 1.05em;
+                list-style: none; user-select: none; transition: background 0.2s;
+            }
+            details.custom-accordion summary:hover { background: #e9ecef; }
+            details.custom-accordion summary::-webkit-details-marker { display: none; }
+            
+            .accordion-icon {
+                display: inline-flex; align-items: center; justify-content: center;
+                width: 24px; height: 24px; background: #2196F3; color: white;
+                border-radius: 4px; margin-right: 12px; font-size: 14px;
+                transition: transform 0.2s; flex-shrink: 0;
+            }
+            details.custom-accordion[open] .accordion-icon { transform: rotate(90deg); }
+            
+            .accordion-content { padding: 15px 15px 15px 45px; color: #444; line-height: 1.7; font-size: 0.95em; }
+            .accordion-content ol { margin: 0; padding-left: 20px; }
+            .accordion-content li { margin-bottom: 10px; }
+        </style>
+
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 40px;">
-            <div style="background: #f8f9fa; padding: 25px; border-radius: 8px; border-left: 4px solid #17a2b8;">
+            <div style="background: #f8f9fa; padding: 25px; border-radius: 8px; border-left: 4px solid #17a2b8; height: fit-content;">
                 <h3 style="color: #17a2b8; margin-top: 0; border-bottom: 1px solid #dee2e6; padding-bottom: 10px;">經歷與專長</h3>
                 <div style="line-height: 1.8; color: #444;">
                     <p><strong>🏢 實驗室：</strong> <?php echo htmlspecialchars($teacher['lab_name'] ?? '尚未填寫'); ?></p>
@@ -65,26 +95,39 @@ if (!$teacher) {
                 $honors = $conn->query("SELECT * FROM AcademicHonors WHERE teacher_id = $teacher_id ORDER BY award_year DESC");
                 if ($honors->num_rows > 0) {
                     echo "<h3 style='color: #28a745; border-bottom: 1px solid #eee; padding-bottom: 8px; margin-top: 0;'>🏆 學術榮譽</h3>";
-                    echo "<ul style='line-height: 1.6; color: #444; padding-left: 20px; margin-bottom: 30px;'>";
+                    echo "<details class='custom-accordion' open>";
+                    echo "  <summary><span class='accordion-icon'>❯</span> 學術榮譽紀錄 (" . $honors->num_rows . ")</summary>";
+                    echo "  <div class='accordion-content'><ol>";
                     while($h = $honors->fetch_assoc()) {
-                        echo "<li><strong>{$h['award_year']}</strong> - " . htmlspecialchars($h['honor_name']) . " <span style='color:#777; font-size:0.9em;'>(" . htmlspecialchars($h['awarding_body']) . ")</span></li>";
+                        echo "      <li><strong>{$h['award_year']}</strong> / " . htmlspecialchars($h['honor_name']) . " / " . htmlspecialchars($h['awarding_body']) . "</li>";
                     }
-                    echo "</ul>";
+                    echo "  </ol></div></details>";
+                    echo "<div style='margin-bottom: 30px;'></div>";
                 }
 
-                // 論文與著作
-                $pubs = $conn->query("SELECT * FROM Publications WHERE teacher_id = $teacher_id ORDER BY publish_year DESC");
+                // 論文與計畫
+                $pubs = $conn->query("SELECT * FROM Publications WHERE teacher_id = $teacher_id ORDER BY work_type, publish_year DESC");
                 if ($pubs->num_rows > 0) {
                     echo "<h3 style='color: #6f42c1; border-bottom: 1px solid #eee; padding-bottom: 8px;'>📑 論文與參與計畫</h3>";
-                    echo "<ul style='line-height: 1.6; color: #444; padding-left: 20px;'>";
+                    $grouped_pubs = [];
                     while($p = $pubs->fetch_assoc()) {
-                        echo "<li style='margin-bottom: 10px;'>";
-                        echo "<span style='background: #e9ecef; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; color: #555; margin-right: 5px;'>" . htmlspecialchars($p['work_type']) . "</span> ";
-                        echo "<strong>" . htmlspecialchars($p['title']) . "</strong> ";
-                        echo "<span style='color:#777; font-size:0.9em;'>(" . htmlspecialchars($p['publish_year']) . ")</span>";
-                        echo "</li>";
+                        $grouped_pubs[$p['work_type']][] = $p;
                     }
-                    echo "</ul>";
+                    
+                    $is_first = true;
+                    foreach($grouped_pubs as $type => $items) {
+                        $count = count($items);
+                        $open_attr = $is_first ? "open" : ""; 
+                        echo "<details class='custom-accordion' {$open_attr}>";
+                        echo "  <summary><span class='accordion-icon'>❯</span> " . htmlspecialchars($type) . " ({$count})</summary>";
+                        echo "  <div class='accordion-content'><ol>";
+                        foreach($items as $item) {
+                            $authors_str = !empty($item['authors']) ? " / 作者：" . htmlspecialchars($item['authors']) : "";
+                            echo "      <li>" . htmlspecialchars($item['publish_year']) . " / " . htmlspecialchars($item['title']) . $authors_str . "</li>";
+                        }
+                        echo "  </ol></div></details>";
+                        $is_first = false;
+                    }
                 }
                 
                 if ($honors->num_rows == 0 && $pubs->num_rows == 0) {
@@ -100,14 +143,12 @@ if (!$teacher) {
             $courses_res = $conn->query("SELECT * FROM Courses WHERE teacher_id = $teacher_id ORDER BY course_code");
             $course_list = [];
             
-            // 🌟 建立標準的 5 天 14 節空課表陣列
             $timetable = [];
             for ($d = 1; $d <= 5; $d++) {
                 for ($p = 1; $p <= 14; $p++) {
                     $timetable[$d][$p] = null;
                 }
             }
-            // 🌟 建立文字與數字的映射對應表
             $day_map = ['一'=>1, '二'=>2, '三'=>3, '四'=>4, '五'=>5];
             
             if ($courses_res && $courses_res->num_rows > 0) {
@@ -121,7 +162,6 @@ if (!$teacher) {
                             $periods = explode(',', $parts[1]);
                             foreach($periods as $p) {
                                 $p = trim($p);
-                                // 確實投射進陣列中
                                 if ($d_num && $d_num <= 5 && is_numeric($p) && $p >= 1 && $p <= 14) {
                                     $timetable[$d_num][$p] = [
                                         'name' => $c['course_name'],
@@ -133,7 +173,6 @@ if (!$teacher) {
                     }
                 }
                 
-                // 滿版課表網格
                 $days_label = [1=>'星期一', 2=>'星期二', 3=>'星期三', 4=>'星期四', 5=>'星期五'];
                 echo "<div style='overflow-x: auto; margin-bottom: 40px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);'>";
                 echo "<table style='width: 100%; min-width: 600px; border-collapse: collapse; text-align: center; font-size: 0.95em;'>";
@@ -147,7 +186,6 @@ if (!$teacher) {
                     echo "<tr style='background: {$bg};'>";
                     echo "<td style='padding: 10px; border: 1px solid #dee2e6; font-weight: bold; color: #495057;'>第 {$i} 節</td>";
                     
-                    // 🌟 正確使用 1~5 的數字去撈取陣列內容
                     for ($d = 1; $d <= 5; $d++) {
                         echo "<td style='padding: 10px; border: 1px solid #dee2e6; vertical-align: top;'>";
                         $cell = $timetable[$d][$i];
@@ -163,7 +201,6 @@ if (!$teacher) {
                 }
                 echo "</table></div>";
 
-                // 滿版課程大綱清單
                 echo "<h4 style='color: #17a2b8; margin-bottom: 15px; font-size: 1.3em;'>📘 授課大綱查詢</h4>";
                 echo "<div style='display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 15px;'>";
                 foreach ($course_list as $c) {

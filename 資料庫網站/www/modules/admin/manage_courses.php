@@ -1,4 +1,4 @@
-﻿<div class="card">
+﻿﻿<div class="card">
     <h2>📚 學期開課管理</h2>
     <p>管理員可在此新增、修改與刪除本學期的課程資訊。</p>
 
@@ -171,7 +171,13 @@
         echo "<div><label>課程代碼：</label><input type='text' name='course_code' placeholder='不可與現存代碼重複' required></div>";
         echo "<div><label>課程名稱：</label><input type='text' name='course_name' required></div>";
         echo "<div><label>授課教師：</label><select name='teacher_id' required><option value=''>請選擇教師...</option>$teacher_options</select></div>";
-        echo "<div><label>上課教室：</label><input type='text' name='room' placeholder='如：資工系館 R101' required></div>";
+        // ✨ 動態讀取上課教室選單
+        echo "<div><label>上課教室：</label><select name='room' required><option value=''>-- 請選擇上課教室 --</option>";
+        $rm_res = $conn->query("SELECT room_name FROM Rooms WHERE room_type='上課教室' ORDER BY room_name ASC");
+        while($rm = $rm_res->fetch_assoc()) {
+            echo "<option value='".htmlspecialchars($rm['room_name'])."'>".htmlspecialchars($rm['room_name'])."</option>";
+        }
+        echo "</select></div>";
         echo "<div><label>修課人數上限：</label><input type='number' name='capacity' value='50' min='1' required></div>";
         
         // 排課 UI
@@ -250,7 +256,17 @@
                             <?php echo $teacher_options; ?>
                         </select>
                     </div>
-                    <div><label>上課教室：</label><input type="text" name="room" id="edit_room" required></div>
+                    <div><label>上課教室：</label>
+                        <select name='room' id="edit_room" required>
+                            <option value=''>-- 請選擇上課教室 --</option>
+                            <?php
+                            $rm_res2 = $conn->query("SELECT room_name FROM Rooms WHERE room_type='上課教室' ORDER BY room_name ASC");
+                            while($rm2 = $rm_res2->fetch_assoc()) {
+                                echo "<option value='".htmlspecialchars($rm2['room_name'])."'>".htmlspecialchars($rm2['room_name'])."</option>";
+                            }
+                            ?>
+                        </select>
+                    </div>
                     
                     <div style="grid-column: span 2; background:#f8f9fa; padding:15px; border:1px solid #ced4da; border-radius:5px;">
                         <label style="color:#007bff; font-weight:bold; margin-bottom:10px; display:block;">📅 課程排程設定：</label>

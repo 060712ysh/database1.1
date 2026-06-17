@@ -1,118 +1,116 @@
 ﻿<div class="card">
-    <h2>🖱️ 線上自主選課系統</h2>
+    <h2>🖱️ 線上選課系統</h2>
     
     <?php
-    if(!isset($_SESSION['student_id'])) {
-        echo "<p style='color:red;'>您不是學生，無法使用此功能。</p>";
+    if(!isset($_SESSION['role']) || $_SESSION['role'] != 'Student') {
+        echo "<p style='color:red;'>只有學生可以使用此功能。</p>";
     } else {
-        $student_id = $_SESSION['student_id'];
-        
-        // 取得目前系統的加退選開關狀態
-        $status_query = $conn->query("SELECT setting_value FROM SystemSettings WHERE setting_key = 'enrollment_status'");
-        $enrollment_status = $status_query->fetch_assoc()['setting_value'] ?? 'open';
-        $is_open = ($enrollment_status === 'open');
+        $student_id = $_SESSION['username']; 
 
-        // --- 🚀 核心優化：處理即時選課、即時退選與滿人加簽審核 ---
-        if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
-            $action = $_POST['action']; 
+        // 檢查全域系統設定：加退選是否開放
+        $sys = $conn->query("SELECT setting_value FROM SystemSettings WHERE setting_key = 'enrollment_status'");
+        $sys_status = 'open';
+        if ($sys && $sys->num_rows > 0) {
+            $sys_status = $sys->fetch_assoc()['setting_value'];
+        }
+
+        if ($sys_status == 'closed') {
+            echo "<div style='background:#f8d7da; padding:15px; border-left:4px solid #dc3545; color:#721c24; margin-bottom:20px;'><strong>⚠️ 目前非加退選期間：</strong>系統暫不開放選課異動。</div>";
+        } else {
+            echo "<div style='background:#d4edda; padding:15px; border-left:4px solid #28a745; color:#155724; margin-bottom:20px;'><strong>🟢 加退選開放申請中</strong>：請留意上課時間，衝堂課程將無法加選。</div>";
+        }
+
+        // ==========================================
+        // 處理 1：加選與退選邏輯 (包含衝堂防呆檢查)
+        // ==========================================
+        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_course']) && $sys_status == 'open') {
             $course_id = intval($_POST['course_id']);
             
-            // 【動作 A：取消加簽申請】(不論系統開放與否，皆允許學生抽回申請)
-            if ($action == 'Cancel') {
-                $del_req = $conn->prepare("DELETE FROM CourseRequests WHERE student_id=? AND course_id=? AND status='Pending'");
-                $del_req->bind_param("si", $student_id, $course_id);
-                if ($del_req->execute() && $del_req->affected_rows > 0) {
-                    echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>已成功撤回(取消)該筆加簽申請。</div>";
-                }
-            } 
-            // 【動作 B：一般加選與退選】(必須在選課開放期間)
-            else {
-                if (!$is_open) {
-                    echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>✗ 失敗：</strong>目前非加退選期間，無法進行操作。</div>";
-                } else {
-                    
-                    // 🌟 1. 處理【即時退選】(完全免審核，點擊立即生效)
-                    if ($action == 'Drop') {
-                        $del_enroll = $conn->prepare("DELETE FROM Enrollments WHERE student_id=? AND course_id=?");
-                        $del_enroll->bind_param("si", $student_id, $course_id);
-                        if ($del_enroll->execute()) {
-                            // 順便清理可能殘留的加簽單紀錄
-                            $conn->query("DELETE FROM CourseRequests WHERE student_id='$student_id' AND course_id=$course_id AND status='Pending'");
-                            echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>已直接退選該課程，名額已釋出！</div>";
-                        }
-                    } 
-                    
-                    // 🌟 2. 處理【加選邏輯】(動態判斷人數是否額滿)
-                    else if ($action == 'Add') {
-                        // 即時查詢該課程的最新人數上限與已選人數
-                        $stmt = $conn->prepare("
-                            SELECT c.capacity, COUNT(e.enrollment_id) as enrolled, c.course_name 
-                            FROM Courses c 
-                            LEFT JOIN Enrollments e ON c.course_id = e.course_id 
-                            WHERE c.course_id = ?
-                            GROUP BY c.course_id
-                        ");
-                        $stmt->bind_param("i", $course_id);
-                        $stmt->execute();
-                        $stmt->bind_result($capacity, $enrolled, $c_name);
-                        $stmt->fetch();
-                        $stmt->close();
-                        
-                        if ($enrolled < $capacity) {
-                            // 🟢 情況甲：人數未滿 -> 【免審核直接加選成功】
-                            $ins_enroll = $conn->prepare("INSERT IGNORE INTO Enrollments (student_id, course_id) VALUES (?, ?)");
-                            $ins_enroll->bind_param("si", $student_id, $course_id);
-                            if ($ins_enroll->execute()) {
-                                echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 成功：</strong>課程「{$c_name}」尚有餘額，已為您直接加選成功！</div>";
-                            }
-                        } else {
-                            // 🔴 情況乙：人數已滿 -> 【自動轉為人工加簽單，需審核】
-                            $check_req = $conn->query("SELECT request_id FROM CourseRequests WHERE student_id='$student_id' AND course_id=$course_id AND status='Pending'");
-                            if ($check_req->num_rows == 0) {
-                                $ins_req = $conn->prepare("INSERT INTO CourseRequests (student_id, course_id, action, status) VALUES (?, ?, 'Add', 'Pending')");
-                                $ins_req->bind_param("si", $student_id, $course_id);
-                                $ins_req->execute();
-                                echo "<div class='card' style='background:#fff3cd; border-left:4px solid #ffc107;'><strong>⏳ 提示：</strong>課程「{$c_name}」人數已滿！系統已自動為您送出【加簽審核申請單】，請等待系辦審核。</div>";
-                            } else {
-                                echo "<div class='card' style='background:#fff3cd; border-left:4px solid #ffc107;'>您已送出過該課程的加簽申請，目前正在系辦審核中。</div>";
+            $q_target = $conn->query("SELECT course_name, schedule FROM Courses WHERE course_id = $course_id");
+            $target_course = $q_target->fetch_assoc();
+            $target_sch = trim($target_course['schedule']);
+            
+            $has_conflict = false;
+            $conflict_msg = "";
+
+            if (!empty($target_sch) && strpos($target_sch, ' ') !== false) {
+                list($t_day, $t_periods_str) = explode(' ', $target_sch);
+                $t_periods = array_map('trim', explode(',', $t_periods_str));
+
+                // 撈取已選上與審核中的課程時間
+                $q_current = $conn->query("
+                    SELECT c.course_name, c.schedule 
+                    FROM Courses c 
+                    WHERE c.course_id IN (
+                        SELECT course_id FROM Enrollments WHERE student_id = '$student_id'
+                        UNION 
+                        SELECT course_id FROM CourseRequests WHERE student_id = '$student_id' AND status = 'Pending'
+                    )
+                ");
+
+                while ($curr = $q_current->fetch_assoc()) {
+                    $c_sch = trim($curr['schedule']);
+                    if (!empty($c_sch) && strpos($c_sch, ' ') !== false) {
+                        list($c_day, $c_periods_str) = explode(' ', $c_sch);
+                        if ($t_day === $c_day) {
+                            $c_periods = array_map('trim', explode(',', $c_periods_str));
+                            $intersection = array_intersect($t_periods, $c_periods);
+                            
+                            if (count($intersection) > 0) {
+                                $has_conflict = true;
+                                $conflict_msg = "「" . htmlspecialchars($curr['course_name']) . "」時間重疊 (星期{$t_day} 第 " . implode(',', $intersection) . " 節)";
+                                break;
                             }
                         }
                     }
                 }
             }
-        }
-        
-        // --- 準備課表與列表資料查詢 ---
-        $courses = $conn->query("
-            SELECT c.course_id, c.course_code, c.course_name, c.schedule, c.room, 
-                   t.name as teacher_name, c.capacity, COUNT(e.enrollment_id) as enrolled
-            FROM Courses c
-            LEFT JOIN Teachers t ON c.teacher_id = t.teacher_id
-            LEFT JOIN Enrollments e ON c.course_id = e.course_id
-            WHERE c.semester = '113-1' GROUP BY c.course_id ORDER BY c.course_code
-        ");
-        
-        $my_courses = $conn->query("SELECT e.course_id, c.course_name, c.schedule FROM Enrollments e JOIN Courses c ON e.course_id = c.course_id WHERE e.student_id = '$student_id'");
-        $my_course_ids = [];
-        $enrolled_data = [];
-        while($row = $my_courses->fetch_assoc()) {
-            $my_course_ids[] = $row['course_id'];
-            $enrolled_data[] = $row;
-        }
 
-        $pending_reqs = $conn->query("SELECT cr.course_id, cr.action, c.course_name, c.schedule FROM CourseRequests cr JOIN Courses c ON cr.course_id = c.course_id WHERE cr.student_id = '$student_id' AND cr.status = 'Pending'");
-        $pending_data = [];
-        $pending_add_data = []; 
-        while($row = $pending_reqs->fetch_assoc()) {
-            $pending_data[$row['course_id']] = $row['action']; 
-            if ($row['action'] == 'Add') {
-                $pending_add_data[] = $row;
+            // 若衝堂，拒絕寫入
+            if ($has_conflict) {
+                echo "<div class='card' style='background:#f8d7da; border-left:4px solid #dc3545;'><strong>⛔ 衝堂阻擋：</strong>無法加選，與您目前的 {$conflict_msg}！</div>";
+            } else {
+                $chk_enr = $conn->query("SELECT * FROM Enrollments WHERE student_id='$student_id' AND course_id=$course_id");
+                $chk_req = $conn->query("SELECT * FROM CourseRequests WHERE student_id='$student_id' AND course_id=$course_id AND status='Pending'");
+                
+                if($chk_enr->num_rows > 0) {
+                    echo "<div class='card' style='background:#fff3cd; border-left:4px solid #ffc107;'>⚠️ 您已經選上此課程了。</div>";
+                } elseif($chk_req->num_rows > 0) {
+                    echo "<div class='card' style='background:#fff3cd; border-left:4px solid #ffc107;'>⚠️ 您已經送出申請，目前正在等待審核中。</div>";
+                } else {
+                    $cap_q = $conn->query("SELECT capacity, (SELECT COUNT(*) FROM Enrollments WHERE course_id = Courses.course_id) as enrolled FROM Courses WHERE course_id = $course_id");
+                    $cap_data = $cap_q->fetch_assoc();
+                    
+                    if($cap_data['enrolled'] >= $cap_data['capacity']) {
+                        $conn->query("INSERT INTO CourseRequests (student_id, course_id, action, status) VALUES ('$student_id', $course_id, 'Add', 'Pending')");
+                        echo "<div class='card' style='background:#d1ecf1; border-left:4px solid #17a2b8;'><strong>📝 課程已額滿：</strong>已為您送出加簽申請單，請等候教師審核。</div>";
+                    } else {
+                        $conn->query("INSERT INTO Enrollments (student_id, course_id) VALUES ('$student_id', $course_id)");
+                        echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 加選成功：</strong>您已成功選上此課程！</div>";
+                    }
+                }
             }
         }
-        
+
+        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['drop_course']) && $sys_status == 'open') {
+            $course_id = intval($_POST['course_id']);
+            $conn->query("DELETE FROM Enrollments WHERE student_id='$student_id' AND course_id=$course_id");
+            $conn->query("DELETE FROM CourseRequests WHERE student_id='$student_id' AND course_id=$course_id");
+            echo "<div class='card' style='background:#d4edda; border-left:4px solid #28a745;'><strong>✓ 退選成功：</strong>已為您退選此課程。</div>";
+        }
+
+
         // ==========================================
-        // 📊 繪製圖形化課表區塊 (5 天)
+        // 區塊 1：視覺化預排課表
         // ==========================================
+        echo "<div style='display:flex; justify-content:space-between; align-items:flex-end; margin-top: 30px; border-bottom: 2px solid #1976d2; padding-bottom: 10px; margin-bottom: 20px;'>";
+        echo "  <h3 style='margin:0; color: #1976d2;'>📅 預排課表狀態</h3>";
+        echo "  <div style='font-size:0.9em; color:#555;'>";
+        echo "      <span style='display:inline-block; width:12px; height:12px; background:#d4edda; border-left:4px solid #28a745; margin-right:5px;'></span> 已核准 / 已選上 &nbsp;&nbsp;";
+        echo "      <span style='display:inline-block; width:12px; height:12px; background:#e8f4fd; border-left:4px solid #17a2b8; margin-right:5px;'></span> 額滿加簽中";
+        echo "  </div>";
+        echo "</div>";
+
         $timetable = [];
         for ($d = 1; $d <= 5; $d++) {
             for ($p = 1; $p <= 14; $p++) {
@@ -121,125 +119,143 @@
         }
         $day_map = ['一'=>1, '二'=>2, '三'=>3, '四'=>4, '五'=>5];
 
-        // 1. 已選上的課程 (綠色)
-        foreach ($enrolled_data as $course) {
-            $sch = trim($course['schedule']);
-            if (empty($sch)) continue;
-            $parts = explode(' ', $sch); 
-            if (count($parts) >= 2) {
-                $d_num = $day_map[$parts[0]] ?? 0;
-                $periods = explode(',', $parts[1]);
-                foreach ($periods as $p) {
-                    if ($d_num && $d_num <= 5 && is_numeric($p) && $p >= 1 && $p <= 14) {
-                        $timetable[$d_num][$p] = ['name' => $course['course_name'], 'type' => 'enrolled'];
+        $q_schedule = $conn->query("
+            SELECT c.course_name, c.schedule, c.room, 'Approved' as status 
+            FROM Courses c 
+            JOIN Enrollments e ON c.course_id = e.course_id 
+            WHERE e.student_id = '$student_id'
+            UNION
+            SELECT c.course_name, c.schedule, c.room, 'Pending' as status 
+            FROM Courses c 
+            JOIN CourseRequests cr ON c.course_id = cr.course_id 
+            WHERE cr.student_id = '$student_id' AND cr.status = 'Pending'
+        ");
+
+        if ($q_schedule && $q_schedule->num_rows > 0) {
+            while($c = $q_schedule->fetch_assoc()) {
+                $sch = trim($c['schedule']);
+                if (!empty($sch) && strpos($sch, ' ') !== false) {
+                    $parts = explode(' ', $sch);
+                    if (count($parts) >= 2) {
+                        $d_num = $day_map[$parts[0]] ?? 0;
+                        $periods = explode(',', $parts[1]);
+                        foreach($periods as $p) {
+                            $p = trim($p);
+                            if ($d_num && $d_num <= 5 && is_numeric($p) && $p >= 1 && $p <= 14) {
+                                $timetable[$d_num][$p] = [
+                                    'name' => $c['course_name'],
+                                    'room' => $c['room'],
+                                    'status' => $c['status']
+                                ];
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // 2. 預選加簽中的課程 (藍色)
-        foreach ($pending_add_data as $course) {
-            $sch = trim($course['schedule']);
-            if (empty($sch)) continue;
-            $parts = explode(' ', $sch);
-            if (count($parts) >= 2) {
-                $d_num = $day_map[$parts[0]] ?? 0;
-                $periods = explode(',', $parts[1]);
-                foreach ($periods as $p) {
-                    if ($d_num && $d_num <= 5 && is_numeric($p) && $p >= 1 && $p <= 14 && !$timetable[$d_num][$p]) {
-                        $timetable[$d_num][$p] = ['name' => $course['course_name'], 'type' => 'pending'];
-                    }
-                }
-            }
-        }
-
-        echo "<div style='background:#f8f9fa; padding:20px; border-radius:8px; margin-bottom:30px; border:1px solid #dee2e6;'>";
-        echo "<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;'>";
-        echo "<h3 style='margin:0; color:#2c3e50;'>📅 我的預排課表</h3>";
-        echo "<div style='font-size:0.9em;'><span style='display:inline-block; width:12px; height:12px; background:#d4edda; border-left:3px solid #28a745; margin-right:5px;'></span> 已核准 / 已選上 &nbsp;&nbsp;&nbsp; <span style='display:inline-block; width:12px; height:12px; background:#dbeafe; border-left:3px solid #007bff; margin-right:5px;'></span> 額滿加簽中 (待審核)</div>";
-        echo "</div>";
-
-        echo "<table style='width:100%; border-collapse:collapse; text-align:center; table-layout:fixed; font-size:0.95em; background:#fff;'>";
-        echo "<tr style='background:#e9ecef; border-bottom:2px solid #ccc;'>";
-        echo "<th style='border:1px solid #ddd; padding:10px; width:50px;'>節次</th>";
-        $days = ['一', '二', '三', '四', '五'];
-        foreach ($days as $day) echo "<th style='border:1px solid #ddd; padding:10px;'>星期{$day}</th>";
+        $days_label = [1=>'星期一', 2=>'星期二', 3=>'星期三', 4=>'星期四', 5=>'星期五'];
+        echo "<div style='overflow-x: auto; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 1px solid #dee2e6; margin-bottom: 40px;'>";
+        echo "<table style='width: 100%; min-width: 600px; border-collapse: collapse; font-size: 0.95em;'>";
+        echo "<tr style='background: #f8f9fa;'>";
+        echo "<th style='padding: 10px; border: 1px solid #dee2e6; width: 60px; color:#495057;'>節次</th>";
+        foreach ($days_label as $d_label) echo "<th style='padding: 10px; border: 1px solid #dee2e6; width: 18.8%; color:#495057;'>$d_label</th>";
         echo "</tr>";
-
-        for ($p = 1; $p <= 14; $p++) {
+        
+        for ($i = 1; $i <= 14; $i++) {
             echo "<tr>";
-            echo "<td style='border:1px solid #ddd; font-weight:bold; background:#f4f6f9; color:#555;'>{$p}</td>";
-            for ($d = 1; $d <= 5; $d++) { 
-                $cell = $timetable[$d][$p];
+            echo "<td style='padding: 8px; border: 1px solid #dee2e6; font-weight: bold; color: #495057; text-align:center; background: #fff;'>{$i}</td>";
+            for ($d = 1; $d <= 5; $d++) {
+                echo "<td style='padding: 8px; border: 1px solid #dee2e6; vertical-align: top; background: #fff;'>";
+                $cell = $timetable[$d][$i];
                 if ($cell) {
-                    $bg = ($cell['type'] == 'enrolled') ? '#d4edda' : '#dbeafe';
-                    $border = ($cell['type'] == 'enrolled') ? '#28a745' : '#007bff';
-                    $color = ($cell['type'] == 'enrolled') ? '#155724' : '#004085';
-                    echo "<td style='border:1px solid #ddd; background:{$bg}; border-left:4px solid {$border}; color:{$color}; padding:5px; font-weight:bold; vertical-align:middle;'>" . htmlspecialchars($cell['name']) . "</td>";
-                } else {
-                    echo "<td style='border:1px solid #ddd;'></td>";
+                    if ($cell['status'] == 'Approved') {
+                        $bg = '#d4edda'; $border = '#28a745'; $text = '#155724';
+                    } else {
+                        $bg = '#e8f4fd'; $border = '#17a2b8'; $text = '#0c5460';
+                    }
+                    echo "<div style='background: {$bg}; border-left: 4px solid {$border}; padding: 6px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>";
+                    echo "<strong style='color: {$text}; display: block; margin-bottom: 2px; font-size:0.95em;'>" . htmlspecialchars($cell['name']) . "</strong>";
+                    echo "<span style='color: #555; font-size: 0.8em; display:block;'>📍 " . htmlspecialchars($cell['room'] ?? '未定') . "</span>";
+                    echo "</div>";
                 }
+                echo "</td>";
             }
             echo "</tr>";
         }
         echo "</table></div>";
 
-        // ==========================================
-        // 📋 課程清單與按鈕渲染區塊
-        // ==========================================
-        if ($is_open) {
-            echo "<p style='color:#007bff; font-weight:bold; font-size:1.1em;'>當前學期：113-1 ｜ 🟢 加退選開放申請中</p>";
-        } else {
-            echo "<p style='color:#dc3545; font-weight:bold; font-size:1.1em;'>當前學期：113-1 ｜ 🔴 加退選目前已關閉，暫停受理新申請</p>";
-        }
 
-        echo "<table style='width:100%; text-align:left; border-collapse: collapse; margin-top:10px;'>";
-        echo "<tr style='border-bottom:2px solid #343a40; background:#f4f6f9;'><th style='padding:10px;'>代碼</th><th style='padding:10px;'>課程名稱</th><th style='padding:10px;'>教師</th><th style='padding:10px;'>上課時間與地點</th><th style='padding:10px;'>大綱</th><th style='padding:10px;'>人數狀況</th><th style='padding:10px;'>操作</th></tr>";
+        // ==========================================
+        // 區塊 2：可選課程清單 (按鈕區)
+        // ==========================================
+        echo "<h3 style='color: #343a40; border-bottom: 2px solid #343a40; padding-bottom: 10px; margin-bottom: 15px;'>📝 系統開放課程清單</h3>";
         
-        while($course = $courses->fetch_assoc()) {
-            $is_enrolled = in_array($course['course_id'], $my_course_ids);
-            $pending_action = $pending_data[$course['course_id']] ?? null;
-            $is_full = $course['enrolled'] >= $course['capacity'];
-            $bg_color = $is_enrolled ? '#f8fff9' : ($is_full ? '#fff3f3' : '');
+        $my_enrollments = [];
+        $res1 = $conn->query("SELECT course_id FROM Enrollments WHERE student_id='$student_id'");
+        while($r = $res1->fetch_assoc()) $my_enrollments[] = $r['course_id'];
+        
+        $my_pending = [];
+        $res2 = $conn->query("SELECT course_id FROM CourseRequests WHERE student_id='$student_id' AND status='Pending'");
+        while($r = $res2->fetch_assoc()) $my_pending[] = $r['course_id'];
+
+        echo "<table style='width:100%; border-collapse:collapse; text-align:left; font-size:0.95em;'>";
+        echo "<tr style='background:#f4f6f9; border-bottom:2px solid #343a40;'>";
+        echo "<th style='padding:12px 10px;'>代碼</th><th style='padding:12px 10px;'>課程名稱</th><th style='padding:12px 10px;'>教師</th><th style='padding:12px 10px;'>上課時間與地點</th><th style='padding:12px 10px;'>大綱</th><th style='padding:12px 10px;'>人數狀況</th><th style='padding:12px 10px;'>操作</th></tr>";
+
+        $courses = $conn->query("
+            SELECT c.*, t.name as teacher_name, 
+                   (SELECT COUNT(*) FROM Enrollments WHERE course_id = c.course_id) as enrolled_count 
+            FROM Courses c 
+            LEFT JOIN Teachers t ON c.teacher_id = t.teacher_id 
+            ORDER BY c.course_code
+        ");
+
+        while($c = $courses->fetch_assoc()) {
+            echo "<tr style='border-bottom:1px solid #eee;' onmouseover=\"this.style.background='#f9f9f9'\" onmouseout=\"this.style.background='#fff'\">";
+            echo "<td style='padding:12px 10px; font-weight:bold;'>{$c['course_code']}</td>";
+            echo "<td style='padding:12px 10px;'>".htmlspecialchars($c['course_name'])."</td>";
+            echo "<td style='padding:12px 10px;'>".htmlspecialchars($c['teacher_name'] ?? '未定')."</td>";
             
-            echo "<tr style='border-bottom:1px solid #e0e0e0; background:$bg_color;'>";
-            echo "<td style='padding:10px; font-weight:bold;'>" . htmlspecialchars($course['course_code']) . "</td>";
-            echo "<td style='padding:10px;'>" . htmlspecialchars($course['course_name']) . "</td>";
-            echo "<td style='padding:10px;'>" . htmlspecialchars($course['teacher_name'] ?? '未指派') . "</td>";
-            echo "<td style='padding:10px;'><span style='color:#d35400; font-weight:bold;'>🕒 " . htmlspecialchars($course['schedule']) . "</span><br><span style='color:#666; font-size:0.9em;'>📍 " . htmlspecialchars($course['room'] ?? '未定') . "</span></td>";
-            echo "<td style='padding:10px;'><a href='index.php?page=syllabus_detail&id={$course['course_id']}' class='btn' style='background:#17a2b8; padding:5px 10px; font-size:0.9em; text-decoration:none; color:#fff;'>📄 查看</a></td>";
-            echo "<td style='padding:10px;" . ($is_full ? "color:#dc3545; font-weight:bold;" : "color:green;") . "'>" . $course['enrolled'] . " / " . $course['capacity'] . ($is_full ? " (已額滿)" : "") . "</td>";
+            echo "<td style='padding:12px 10px; line-height:1.5;'>";
+            echo "<strong style='color:#d35400;'>🕒 {$c['schedule']}</strong><br>";
+            echo "<span style='color:#666; font-size:0.9em;'>📍 ".htmlspecialchars($c['room'] ?? '未定')."</span>";
+            echo "</td>";
             
-            echo "<td style='padding:10px;'>";
+            echo "<td style='padding:12px 10px;'><a href='index.php?page=syllabus_detail&id={$c['course_id']}' style='background:#17a2b8; color:#fff; padding:4px 10px; border-radius:4px; text-decoration:none; font-size:0.9em;'>📄 查看</a></td>";
             
-            // 判斷按鈕狀態
-            if ($pending_action == 'Add' || $pending_action == 'Drop') {
-                $status_txt = ($pending_action == 'Add') ? "⏳ 加簽審核中" : "⏳ 退選審核中";
-                echo "<div style='display:flex; gap:5px; align-items:center;'>";
-                echo "<span style='background:#6c757d; color:#fff; padding:5px 10px; border-radius:4px; font-size:0.9em; cursor:not-allowed;'>{$status_txt}</span>";
-                echo "<form method='POST' style='margin:0;'>
-                        <input type='hidden' name='action' value='Cancel'>
-                        <input type='hidden' name='course_id' value='{$course['course_id']}'>
-                        <button type='submit' class='btn' style='background:#dc3545; padding:5px 8px; font-size:0.9em;' onclick='return confirm(\"確定要撤回此加簽申請嗎？\");'>✖ 取消</button>
-                      </form>";
-                echo "</div>";
-            } else if (!$is_open) {
-                echo "<button class='btn' style='background:#ccc; color:#666; cursor:not-allowed; border:1px solid #aaa;' disabled>⛔ 已關閉</button>";
-            } else if ($is_enrolled) {
-                // 已選上時，點擊直接執行退選
-                echo "<form method='POST' style='margin:0;' onsubmit='return confirm(\"確定要退選這門課程嗎？名額會立刻釋出喔！\");'><input type='hidden' name='action' value='Drop'><input type='hidden' name='course_id' value='{$course['course_id']}'><button type='submit' class='btn' style='background:#dc3545;'>❌ 立即退選</button></form>";
+            $color = ($c['enrolled_count'] >= $c['capacity']) ? '#dc3545' : '#28a745';
+            echo "<td style='padding:12px 10px; color:{$color}; font-weight:bold;'>{$c['enrolled_count']} / {$c['capacity']}</td>";
+            
+            echo "<td style='padding:12px 10px;'>";
+            if ($sys_status == 'closed') {
+                echo "<span style='color:#999;'>未開放</span>";
             } else {
-                if ($is_full) {
-                    // 額滿時，按鈕提示為送出申請
-                    echo "<form method='POST' style='margin:0;'><input type='hidden' name='action' value='Add'><input type='hidden' name='course_id' value='{$course['course_id']}'><button type='submit' class='btn' style='background:#ffc107; color:#333; font-weight:bold;'>✍️ 額滿申請加簽</button></form>";
+                echo "<form method='POST' style='margin:0;'>";
+                echo "<input type='hidden' name='course_id' value='{$c['course_id']}'>";
+                if (in_array($c['course_id'], $my_enrollments)) {
+                    echo "<button type='submit' name='drop_course' class='btn' style='background:#dc3545; padding:6px 12px; font-size:0.9em;' onclick='return confirm(\"確定要退選嗎？\");'>✖ 立即退選</button>";
+                } elseif (in_array($c['course_id'], $my_pending)) {
+                    echo "<button type='button' class='btn' style='background:#6c757d; padding:6px 12px; font-size:0.9em; cursor:not-allowed;' disabled>⏳ 審核中</button>";
+                    echo "<br><button type='submit' name='drop_course' style='background:none; border:none; color:#dc3545; font-size:0.85em; cursor:pointer; margin-top:5px; text-decoration:underline;'>取消申請</button>";
                 } else {
-                    // 未滿時，按鈕提示為直接搶課
-                    echo "<form method='POST' style='margin:0;'><input type='hidden' name='action' value='Add'><input type='hidden' name='course_id' value='{$course['course_id']}'><button type='submit' class='btn' style='background:#28a745;'>➕ 直接加選</button></form>";
+                    $btn_text = ($c['enrolled_count'] >= $c['capacity']) ? '📝 登記加簽' : '➕ 直接加選';
+                    $btn_color = ($c['enrolled_count'] >= $c['capacity']) ? '#ffc107' : '#28a745';
+                    $text_color = ($c['enrolled_count'] >= $c['capacity']) ? '#333' : '#fff';
+                    echo "<button type='submit' name='add_course' class='btn' style='background:{$btn_color}; color:{$text_color}; padding:6px 12px; font-size:0.9em;'>{$btn_text}</button>";
                 }
+                echo "</form>";
             }
-            echo "</td></tr>";
+            echo "</td>";
+            echo "</tr>";
         }
         echo "</table>";
     }
     ?>
+    
+    <script>
+    if (window.history.replaceState) {
+        window.history.replaceState(null, null, window.location.href);
+    }
+    </script>
 </div>
