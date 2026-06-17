@@ -165,7 +165,6 @@ CREATE TABLE Messages (
     content TEXT NOT NULL,
     reply_content TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    is_public BOOLEAN DEFAULT FALSE,
     FOREIGN KEY (sender_id) REFERENCES Users(id) ON DELETE CASCADE
 );
 
@@ -324,13 +323,13 @@ INSERT INTO Reservations (student_id, room_name, purpose, reserve_date, start_pe
 ('s00001', '討論室 101 (4人)', '專題報告演練', DATE_ADD(CURDATE(), INTERVAL 6 DAY), 6, 8, 'Pending', NULL);
 
 -- 留言板預設資料
-INSERT INTO Messages (sender_id, content, reply_content, is_public) VALUES
-(12, '請問下學期「資料庫系統」會開設進階班嗎？', '目前系辦正在統計修課意願，預計下個月中旬會公告。', TRUE),
-(13, '教室的冷氣好像不涼了。', '已通知工友前往查看，謝謝回報！', TRUE),
-(14, '選課系統的密碼忘記了怎麼辦？', '請帶著學生證至系辦由專人為您重設為 123456。', FALSE),
-(15, '請問獎學金申請到什麼時候？', '截止日期為下週五下午五點，請盡快繳交書面資料。', TRUE),
-(16, '這學期的體育課可以抵免嗎？', '請參閱教務處最新抵免規章。', TRUE),
-(12, '系統很好用！', '感謝同學的回饋！', TRUE);
+INSERT INTO Messages (sender_id, content, reply_content) VALUES
+(12, '請問下學期「資料庫系統」會開設進階班嗎？', '目前系辦正在統計修課意願，預計下個月中旬會公告。'),
+(13, '教室的冷氣好像不涼了。', '已通知工友前往查看，謝謝回報！'),
+(14, '選課系統的密碼忘記了怎麼辦？', '請帶著學生證至系辦由專人為您重設為 123456。'),
+(15, '請問獎學金申請到什麼時候？', '截止日期為下週五下午五點，請盡快繳交書面資料。'),
+(16, '這學期的體育課可以抵免嗎？', '請參閱教務處最新抵免規章。'),
+(12, '系統很好用！', '感謝同學的回饋！');
 
 -- 最新消息預設資料
 INSERT INTO News (title, content, image_path, sort_order) VALUES
