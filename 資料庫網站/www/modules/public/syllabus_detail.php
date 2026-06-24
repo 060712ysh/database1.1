@@ -45,11 +45,33 @@ if (!$course) {
         </div>
 
         <div style="background: #fff; padding: 20px; border-radius: 8px; border: 1px solid #ddd;">
-            <h4 style="margin-top: 0; color: #333; border-bottom: 1px solid #eee; padding-bottom: 8px;">📋 課程內容與進度規劃</h4>
+            <h4 style="margin-top: 0; color: #333; border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 15px;">📋 課程內容與進度規劃</h4>
             <div style="line-height: 1.8; color: #444; font-size: 1.05em; white-space: pre-wrap;">
                 <?php 
-                if (!empty($course['syllabus'])) {
-                    echo nl2br(htmlspecialchars($course['syllabus']));
+                if (!empty(trim($course['syllabus']))) {
+                    $syl_data = json_decode($course['syllabus'], true);
+                    
+                    // 如果是舊版未分欄的純文字，直接印出
+                    if (json_last_error() !== JSON_ERROR_NONE) {
+                        echo nl2br(htmlspecialchars($course['syllabus']));
+                    } else {
+                        // 印出新版的 5 個欄位
+                        $sections = [
+                            'objectives' => '🎯 課程目標',
+                            'materials'  => '📚 課程教材',
+                            'schedule'   => '🗓️ 授課進度與內容',
+                            'integrity'  => '⚖️ 學術誠信',
+                            'rules'      => '📜 課堂規則'
+                        ];
+                        foreach($sections as $key => $title) {
+                            if (!empty(trim($syl_data[$key] ?? ''))) {
+                                echo "<div style='margin-bottom: 20px;'>";
+                                echo "  <h5 style='color: #2c3e50; font-size: 1.1em; margin-bottom: 8px; border-bottom: 2px solid #e9ecef; padding-bottom: 5px;'>{$title}</h5>";
+                                echo "  <div style='padding-left: 10px; color: #555;'>" . htmlspecialchars($syl_data[$key]) . "</div>";
+                                echo "</div>";
+                            }
+                        }
+                    }
                 } else {
                     echo "<span style='color:#999; font-style:italic;'>授課老師目前尚未編寫或上傳本課程之詳細大綱。</span>";
                 }

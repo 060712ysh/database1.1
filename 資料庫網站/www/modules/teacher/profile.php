@@ -187,14 +187,18 @@
         echo "<h3 style='color:#6f42c1; margin-top:30px;'>📑 論文與參與計畫管理</h3>";
         echo "<div style='background:#f9f8ff; padding:20px; border:1px solid #d6c3e6; border-radius:5px;'>";
         echo "<form method='POST' style='display:flex; flex-wrap:wrap; gap:10px; margin-bottom:15px;'>";
-        echo "<select name='work_type' required style='width:200px; margin:0;'>";
+        // ✨ 加入 id='pub_type'
+        echo "<select name='work_type' id='pub_type' required style='width:200px; margin:0;'>";
         $types = ['發表期刊論文', '會議論文', '專書及技術報告', '國科會計畫', '產學合作計畫', '校外獎勵及指導學生獲獎', '校內獎勵及指導學生獲獎', '校內外演講', '專書論文', '教材與作品', '其他相關研究'];
         echo "<option value=''>-- 選擇著作/計畫類型 --</option>";
         foreach($types as $t) echo "<option value='$t'>$t</option>";
         echo "</select>";
-        echo "<input type='text' name='publish_year' placeholder='發表時間(如: 2023-05)' style='width:150px; margin:0;'>";
-        echo "<input type='text' name='title' placeholder='標題 / 計畫名稱 (必填)' required style='flex:1; min-width:250px; margin:0;'>";
-        echo "<input type='text' name='other_authors' placeholder='其他作者 (不含您自己)' style='flex:1; min-width:200px; margin:0;'>";
+        // ✨ 加入 id='inp_year'
+        echo "<input type='text' name='publish_year' id='inp_year' placeholder='發表時間(如: 2023-05)' style='width:150px; margin:0;'>";
+        // ✨ 加入 id='inp_title'
+        echo "<input type='text' name='title' id='inp_title' placeholder='標題 / 計畫名稱 (必填)' required style='flex:1; min-width:250px; margin:0;'>";
+        // ✨ 加入 id='inp_authors'
+        echo "<input type='text' name='other_authors' id='inp_authors' placeholder='其他作者 (不含您自己)' style='flex:1; min-width:200px; margin:0;'>";
         echo "<button type='submit' name='add_pub' class='btn' style='background:#6f42c1;'>➕ 新增紀錄</button>";
         echo "</form>";
         $pubs = $conn->query("SELECT * FROM Publications WHERE teacher_id = $teacher_id ORDER BY work_type, publish_year DESC");
@@ -239,5 +243,35 @@ if(profileForm) {
             document.getElementById('croppedAvatarData').value = canvas.toDataURL('image/jpeg', 0.85);
         }
     });
+}
+
+const pType = document.getElementById('pub_type');
+const iYear = document.getElementById('inp_year');
+const iTitle = document.getElementById('inp_title');
+const iAuth = document.getElementById('inp_authors');
+
+if(pType && iYear && iTitle && iAuth) {
+    pType.addEventListener('change', function() {
+        const val = this.value;
+        if (val.includes('計畫')) {
+            iTitle.placeholder = '📝 計畫名稱 (必填，如：產學研發計畫)';
+            iAuth.placeholder = '🤝 擔任角色/合作單位 (如：主持人/科技部)';
+            iYear.placeholder = '⏳ 執行期間 (如：112.08-113.07)';
+        } else if (val.includes('獎')) {
+            iTitle.placeholder = '🏆 獎項或競賽名稱 (必填)';
+            iAuth.placeholder = '🎓 獲獎人/指導學生 (如：李大明)';
+            iYear.placeholder = '📅 獲獎年度 (如：2024)';
+        } else if (val.includes('演講')) {
+            iTitle.placeholder = '🎤 演講題目/邀請單位 (必填)';
+            iAuth.placeholder = '📌 備註 (如：Keynote Speaker)';
+            iYear.placeholder = '📅 演講日期 (如：2023-10-15)';
+        } else {
+            iTitle.placeholder = '標題 / 計畫名稱 (必填)';
+            iAuth.placeholder = '其他作者 (不含您自己)';
+            iYear.placeholder = '發表時間(如: 2023-05)';
+        }
+    });
+    // 網頁載入時自動執行一次
+    pType.dispatchEvent(new Event('change'));
 }
 </script>

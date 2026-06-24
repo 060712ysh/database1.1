@@ -1,4 +1,4 @@
-﻿﻿﻿<div class="card">
+﻿﻿<div class="card">
     <h2>📘 課程大綱與課表管理</h2>
     <p>檢視您本學期的授課時間表，並為您的每一門課程編寫詳細的教學大綱與進度規劃。</p>
 
@@ -8,10 +8,19 @@
     } else {
         $teacher_id = $_SESSION['teacher_id'];
 
-        // --- 處理更新大綱 ---
+        // --- 處理更新大綱 (✨ 修改為 JSON 打包 5 個欄位) ---
         if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_syllabus'])) {
             $course_id = intval($_POST['course_id']);
-            $syllabus_content = trim($_POST['syllabus']);
+            
+            $new_syllabus_data = [
+                'objectives' => trim($_POST['objectives'] ?? ''),
+                'materials'  => trim($_POST['materials'] ?? ''),
+                'schedule'   => trim($_POST['schedule'] ?? ''),
+                'integrity'  => trim($_POST['integrity'] ?? ''),
+                'rules'      => trim($_POST['rules'] ?? '')
+            ];
+            // 將陣列轉為 JSON 字串存入資料庫
+            $syllabus_content = json_encode($new_syllabus_data, JSON_UNESCAPED_UNICODE);
             
             // 確保只能更新自己的課程
             $upd = $conn->prepare("UPDATE Courses SET syllabus=? WHERE course_id=? AND teacher_id=?");
@@ -111,10 +120,30 @@
                 echo "<div style='color:#666; font-size:0.9em; background:#f4f6f9; padding:5px 10px; border-radius:4px;'>修課人數上限：{$course['capacity']} 人</div>";
                 echo "</div>";
                 
-                // 大綱編輯表單
+                // 大綱編輯表單 (✨ 修改為 5 個欄位)
                 echo "<form method='POST' style='margin:0;'>";
                 echo "<input type='hidden' name='course_id' value='{$course['course_id']}'>";
-                echo "<textarea name='syllabus' rows='6' placeholder='請在此輸入課程的教學目標、每週進度規劃、評分標準等詳細資訊...' style='width:100%; padding:12px; border:1px solid #ced4da; border-radius:4px; resize:vertical; font-family:inherit; font-size:1em; margin-bottom:15px; box-sizing:border-box;'>" . htmlspecialchars($course['syllabus'] ?? '') . "</textarea>";
+                
+                // 嘗試解析 JSON
+                $syl_data = json_decode($course['syllabus'], true);
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    $syl_data = ['objectives' => '', 'materials' => '', 'schedule' => $course['syllabus'], 'integrity' => '', 'rules' => ''];
+                }
+
+                $fields = [
+                    'objectives' => ['🎯 課程目標', '請在此輸入課程的教學目標...'],
+                    'materials'  => ['📚 課程教材', '請在此輸入課程教材與參考書目...'],
+                    'schedule'   => ['🗓️ 授課進度與內容', '請在此輸入每週進度規劃...'],
+                    'integrity'  => ['⚖️ 學術誠信', '請在此輸入學術誠信與抄襲規範...'],
+                    'rules'      => ['📜 課堂規則', '請在此輸入課堂規則與評分標準詳細資訊...']
+                ];
+
+                foreach($fields as $key => $meta) {
+                    echo "<div style='margin-bottom: 12px;'>";
+                    echo "  <label style='display:block; font-weight:bold; color:#17a2b8; margin-bottom:5px;'>{$meta[0]}</label>";
+                    echo "  <textarea name='{$key}' rows='3' placeholder='{$meta[1]}' style='width:100%; padding:12px; border:1px solid #ced4da; border-radius:4px; resize:vertical; font-family:inherit; font-size:1em; box-sizing:border-box;'>" . htmlspecialchars($syl_data[$key] ?? '') . "</textarea>";
+                    echo "</div>";
+                }
                 
                 echo "<div style='text-align:right;'>";
                 echo "<button type='submit' name='update_syllabus' class='btn' style='background:#17a2b8; padding:8px 25px; font-size:1em;'>💾 儲存大綱</button>";
